@@ -1,0 +1,473 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   HabbitPop — stylesheet.css
+   Dark charcoal theme · GNOME/Adwaita-compatible CSS subset
+
+   Color palette:
+     bg:          #111318   (deepest background)
+     panel:       #1B1E24   (panel surfaces)
+     secondary:   #20232A   (input / card backgrounds)
+     border:      #2A2E38   (subtle borders)
+     accent-blue: #4B9EFF   (primary accent)
+     accent-low:  #1E4D8C   (lower-intensity blue)
+     purple:      #7C5CBF   (secondary accent)
+     text:        #F2F2F2   (primary text)
+     muted:       #A0A4AD   (muted / secondary text)
+     dim:         #5A5E68   (very muted)
+     badge-now:   #4B9EFF   (NOW badge bg)
+     badge-miss:  #555     (MISSED badge — never red)
+═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Popover container ────────────────────────────────────────────────────── */
+
+.datemenu-popover {
+    background-color: #111318;
+    border: 1px solid #2A2E38;
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+    padding: 0;
+}
+
+/* ── Main layout container ────────────────────────────────────────────────── */
+
+.hp-container {
+    background-color: transparent;
+    padding: 20px;
+    spacing: 0px;
+}
+
+.hp-panel-wrap {
+    background-color: #1B1E24;
+    border-radius: 10px;
+    border: 1px solid #2A2E38;
+}
+
+/* ── Panel headers ────────────────────────────────────────────────────────── */
+
+.hp-panel-header {
+    padding: 16px 16px 8px 16px;
+    spacing: 8px;
+}
+
+.hp-panel-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: #F2F2F2;
+    margin-bottom: 2px;
+}
+
+.hp-panel-subtitle {
+    font-size: 11px;
+    color: #A0A4AD;
+}
+
+.hp-header-icon {
+    color: #4B9EFF;
+    opacity: 0.8;
+}
+
+.hp-right-title {
+    padding: 16px 16px 8px 16px;
+}
+
+/* ── Task list ────────────────────────────────────────────────────────────── */
+
+.hp-task-scroll {
+    padding: 0 8px 8px 8px;
+    min-height: 300px;
+}
+
+.hp-task-list {
+    spacing: 2px;
+    padding: 4px 0;
+}
+
+/* ── Task rows ────────────────────────────────────────────────────────────── */
+
+.hp-task-row {
+    padding: 8px 12px;
+    border-radius: 7px;
+    spacing: 8px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.hp-task-row:hover {
+    background-color: #20232A;
+    border-color: #2A2E38;
+}
+
+/* Current task — subtle blue accent */
+.hp-task-current {
+    border-color: rgba(75, 158, 255, 0.25);
+    background-color: rgba(75, 158, 255, 0.06);
+}
+
+/* Completed task — muted */
+.hp-task-completed {
+    opacity: 0.6;
+}
+
+/* Missed task — slightly dimmer, never red */
+.hp-task-missed {
+    opacity: 0.45;
+}
+
+/* ── Check button ─────────────────────────────────────────────────────────── */
+
+.hp-check-btn {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid #5A5E68;
+    background-color: transparent;
+    padding: 0;
+}
+
+.hp-check-btn:hover {
+    border-color: #4B9EFF;
+    background-color: rgba(75, 158, 255, 0.1);
+}
+
+.hp-check-btn:active {
+    border-color: #4B9EFF;
+    background-color: rgba(75, 158, 255, 0.2);
+}
+
+.hp-check-done {
+    border-color: #4B9EFF;
+    background-color: #4B9EFF;
+}
+
+.hp-check-icon {
+    icon-size: 14px;
+    color: #A0A4AD;
+}
+
+.hp-check-done .hp-check-icon {
+    color: #111318;
+}
+
+/* ── Task text ────────────────────────────────────────────────────────────── */
+
+.hp-task-name {
+    font-size: 13px;
+    color: #F2F2F2;
+}
+
+.hp-task-done-text {
+    color: #5A5E68;
+    /* text-decoration: line-through; -- not supported in GNOME CSS subset, use opacity instead */
+}
+
+.hp-task-time {
+    font-size: 11px;
+    color: #A0A4AD;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── State badges ─────────────────────────────────────────────────────────── */
+
+.hp-badge {
+    font-size: 9px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.hp-badge-now {
+    background-color: rgba(75, 158, 255, 0.2);
+    color: #4B9EFF;
+    border: 1px solid rgba(75, 158, 255, 0.35);
+}
+
+.hp-badge-missed {
+    background-color: rgba(90, 94, 104, 0.2);
+    color: #5A5E68;
+    border: 1px solid rgba(90, 94, 104, 0.3);
+}
+
+/* ── Context menu ─────────────────────────────────────────────────────────── */
+
+.hp-context-menu {
+    background-color: #20232A;
+    border: 1px solid #2A2E38;
+    border-radius: 7px;
+    padding: 4px;
+    spacing: 2px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+    margin-left: 32px;
+}
+
+.hp-ctx-btn {
+    padding: 6px 12px;
+    border-radius: 5px;
+    color: #F2F2F2;
+    font-size: 12px;
+    background-color: transparent;
+    text-align: left;
+    x-align: start;
+}
+
+.hp-ctx-btn:hover {
+    background-color: #2A2E38;
+}
+
+.hp-ctx-btn-delete {
+    color: #FF6B6B;
+}
+
+.hp-ctx-btn-delete:hover {
+    background-color: rgba(255, 107, 107, 0.1);
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────────── */
+
+.hp-empty-state {
+    padding: 32px 16px;
+    spacing: 12px;
+}
+
+.hp-empty-icon {
+    color: #5A5E68;
+    icon-size: 32px;
+}
+
+.hp-empty-msg {
+    color: #5A5E68;
+    font-size: 12px;
+    text-align: center;
+}
+
+/* ── Add Todo button ──────────────────────────────────────────────────────── */
+
+.hp-add-btn {
+    padding: 10px 16px;
+    margin: 8px 12px 12px 12px;
+    border-radius: 7px;
+    background-color: rgba(75, 158, 255, 0.1);
+    border: 1px solid rgba(75, 158, 255, 0.2);
+    color: #4B9EFF;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.hp-add-btn:hover {
+    background-color: rgba(75, 158, 255, 0.18);
+    border-color: rgba(75, 158, 255, 0.35);
+}
+
+.hp-add-btn:active {
+    background-color: rgba(75, 158, 255, 0.28);
+}
+
+/* ── Add/Edit form ────────────────────────────────────────────────────────── */
+
+.hp-add-form {
+    background-color: #20232A;
+    border: 1px solid #2A2E38;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 4px 12px;
+    spacing: 8px;
+}
+
+.hp-form-row {
+    spacing: 6px;
+}
+
+.hp-form-opts {
+    spacing: 4px;
+}
+
+.hp-form-input {
+    background-color: #111318;
+    border: 1px solid #2A2E38;
+    border-radius: 6px;
+    color: #F2F2F2;
+    font-size: 12px;
+    padding: 6px 10px;
+    caret-color: #4B9EFF;
+}
+
+.hp-form-input:focus {
+    border-color: #4B9EFF;
+    box-shadow: 0 0 0 2px rgba(75, 158, 255, 0.15);
+}
+
+.hp-form-time {
+    max-width: 70px;
+}
+
+.hp-type-btn,
+.hp-repeat-btn {
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    background-color: transparent;
+    border: 1px solid #2A2E38;
+    color: #A0A4AD;
+}
+
+.hp-type-btn:hover,
+.hp-repeat-btn:hover {
+    border-color: #4B9EFF;
+    color: #F2F2F2;
+}
+
+.hp-type-active {
+    background-color: rgba(75, 158, 255, 0.15);
+    border-color: rgba(75, 158, 255, 0.4);
+    color: #4B9EFF;
+}
+
+.hp-form-actions {
+    spacing: 6px;
+}
+
+.hp-form-submit {
+    padding: 6px 16px;
+    border-radius: 6px;
+    background-color: #4B9EFF;
+    color: #111318;
+    font-size: 12px;
+    font-weight: bold;
+    border: none;
+}
+
+.hp-form-submit:hover {
+    background-color: #5FABFF;
+}
+
+.hp-form-submit:active {
+    background-color: #3A8EEE;
+}
+
+.hp-form-cancel {
+    padding: 6px 12px;
+    border-radius: 6px;
+    background-color: transparent;
+    color: #A0A4AD;
+    font-size: 12px;
+    border: 1px solid #2A2E38;
+}
+
+.hp-form-cancel:hover {
+    background-color: #20232A;
+    color: #F2F2F2;
+}
+
+/* ── Heatmap ──────────────────────────────────────────────────────────────── */
+
+.hp-heatmap-scroll {
+    padding: 0 16px 8px 16px;
+}
+
+.hp-heatmap {
+    /* Sized explicitly in JS */
+}
+
+.hp-month-label {
+    font-size: 9px;
+    color: #A0A4AD;
+    font-variant-numeric: tabular-nums;
+}
+
+.hp-day-label {
+    font-size: 9px;
+    color: #5A5E68;
+    min-width: 24px;
+}
+
+/* Heatmap cells — 5 intensity levels */
+
+.hp-cell {
+    border-radius: 2px;
+}
+
+.hp-cell-l0 {
+    background-color: #20232A;
+}
+
+.hp-cell-l1 {
+    background-color: #1E3A5F;
+}
+
+.hp-cell-l2 {
+    background-color: #1E5497;
+}
+
+.hp-cell-l3 {
+    background-color: #2E78D4;
+}
+
+.hp-cell-l4 {
+    background-color: #4B9EFF;
+}
+
+/* Today's cell — distinct outline */
+.hp-cell-today {
+    border: 1.5px solid #4B9EFF;
+    box-shadow: 0 0 6px rgba(75, 158, 255, 0.5);
+}
+
+/* ── Legend ───────────────────────────────────────────────────────────────── */
+
+.hp-legend {
+    padding: 4px 16px 8px 0;
+    spacing: 3px;
+}
+
+.hp-legend-label {
+    font-size: 9px;
+    color: #5A5E68;
+    padding: 0 4px;
+}
+
+.hp-legend-cell {
+    border-radius: 2px;
+}
+
+/* ── Summary card ─────────────────────────────────────────────────────────── */
+
+.hp-summary-card {
+    background-color: #20232A;
+    border: 1px solid #2A2E38;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 0 16px 16px 16px;
+    spacing: 4px;
+}
+
+.hp-summary-completion {
+    font-size: 14px;
+    font-weight: bold;
+    color: #F2F2F2;
+}
+
+.hp-summary-pct {
+    font-size: 22px;
+    font-weight: bold;
+    color: #4B9EFF;
+}
+
+.hp-summary-encourage {
+    font-size: 11px;
+    color: #A0A4AD;
+    margin-top: 4px;
+}
+
+/* ── Tooltip ──────────────────────────────────────────────────────────────── */
+
+.hp-tooltip {
+    background-color: #20232A;
+    border: 1px solid #2A2E38;
+    border-radius: 5px;
+    color: #F2F2F2;
+    font-size: 11px;
+    padding: 4px 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
