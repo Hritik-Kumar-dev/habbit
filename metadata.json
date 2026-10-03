@@ -1,0 +1,9 @@
+{
+  "name": "HabbitPop",
+  "description": "A productivity popover replacing the default date/time calendar with a daily habits/todo checklist and a GitHub-style activity heatmap.",
+  "uuid": "habbitpop@hritikdev",
+  "version": 1,
+  "shell-version": ["50"],
+  "url": "https://github.com/Hritik-Kumar-dev/habbit",
+  "settings-schema": ""
+}
