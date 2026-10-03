@@ -1,12 +1,15 @@
+#!/usr/bin/env -S gjs -m
 /**
  * seed.js — Generate ~12 weeks of fake history for heatmap testing
  *
- * This is a standalone GJS script. Run from terminal:
- *   gjs seed.js
+ * This is a standalone GJS ESM module. Run from terminal:
+ *   gjs -m seed.js        ← always works
+ *   ./seed.js             ← works after: chmod +x seed.js
  *
- * Or set HABBITPOP_SEED=1 env variable before enabling the extension.
+ * Or set HABBITPOP_SEED=1 before enabling the extension
+ * (extension calls storage.seedFakeHistory() on load when set).
  *
- * The seed injects into the same data.json that the extension uses.
+ * Writes to the same data.json the extension uses.
  */
 
 import GLib from 'gi://GLib';
