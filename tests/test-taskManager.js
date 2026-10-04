@@ -103,7 +103,7 @@ section('computeTaskState — completed');
 section('computeTaskState — upcoming');
 {
     // Task at 23:50, now is 08:00
-    const entry = { taskId: 'x', title: 'T', time: '23:50', completed: false, completedAt: null };
+    const entry = { taskId: 'x', title: 'T', from: '23:50', to: '23:59', completed: false, completedAt: null };
     const now = nowAt('08:00');
     assertEqual(computeTaskState(entry, now), TaskState.UPCOMING, 'future task → UPCOMING');
 }
@@ -111,21 +111,21 @@ section('computeTaskState — upcoming');
 section('computeTaskState — current (within window)');
 {
     // Task at 10:00, now is 10:30 (inside 60-min window)
-    const entry = { taskId: 'x', title: 'T', time: '10:00', completed: false, completedAt: null };
+    const entry = { taskId: 'x', title: 'T', from: '10:00', to: '11:00', completed: false, completedAt: null };
     const now = nowAt('10:00', 30); // 10:30
     assertEqual(computeTaskState(entry, now), TaskState.CURRENT, '30min in window → CURRENT');
 }
 
 section('computeTaskState — current (at window start)');
 {
-    const entry = { taskId: 'x', title: 'T', time: '10:00', completed: false, completedAt: null };
+    const entry = { taskId: 'x', title: 'T', from: '10:00', to: '11:00', completed: false, completedAt: null };
     const now = nowAt('10:00', 0); // exactly 10:00
     assertEqual(computeTaskState(entry, now), TaskState.CURRENT, 'exactly at time → CURRENT');
 }
 
 section('computeTaskState — current (at window end - 1min)');
 {
-    const entry = { taskId: 'x', title: 'T', time: '10:00', completed: false, completedAt: null };
+    const entry = { taskId: 'x', title: 'T', from: '10:00', to: '11:00', completed: false, completedAt: null };
     const now = nowAt('10:00', 59); // 10:59
     assertEqual(computeTaskState(entry, now), TaskState.CURRENT, '59min in window → CURRENT');
 }
@@ -133,14 +133,14 @@ section('computeTaskState — current (at window end - 1min)');
 section('computeTaskState — missed (just past window)');
 {
     // Task at 10:00, now is 11:01 (60+ min ago)
-    const entry = { taskId: 'x', title: 'T', time: '10:00', completed: false, completedAt: null };
+    const entry = { taskId: 'x', title: 'T', from: '10:00', to: '11:00', completed: false, completedAt: null };
     const now = nowAt('10:00', 61); // 11:01
     assertEqual(computeTaskState(entry, now), TaskState.MISSED, '61min past → MISSED');
 }
 
 section('computeTaskState — missed (well past)');
 {
-    const entry = { taskId: 'x', title: 'T', time: '07:00', completed: false, completedAt: null };
+    const entry = { taskId: 'x', title: 'T', from: '07:00', to: '08:00', completed: false, completedAt: null };
     const now = nowAt('22:00');
     assertEqual(computeTaskState(entry, now), TaskState.MISSED, 'hours past → MISSED');
 }
@@ -171,7 +171,7 @@ section('TaskManager — addTask appears in getTodayTasks');
 {
     const { tm } = freshManager();
     tm.start();
-    tm.addTask({ title: 'Morning run', time: '07:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'Morning run', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
     const tasks = tm.getTodayTasks();
     assertEqual(tasks.length, 1, 'one task after add');
     assertEqual(tasks[0].title, 'Morning run', 'correct title');
@@ -183,7 +183,7 @@ section('TaskManager — toggleTask (false → true → false)');
 {
     const { tm } = freshManager();
     tm.start();
-    tm.addTask({ title: 'Toggle me', time: '09:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'Toggle me', from: '09:00', to: '09:30', type: 'habit', repeat: 'daily' });
     const [task] = tm.getTodayTasks();
 
     const newState = tm.toggleTask(task.taskId);
@@ -200,8 +200,8 @@ section('TaskManager — deleteTask removes from today');
 {
     const { tm } = freshManager();
     tm.start();
-    tm.addTask({ title: 'Delete me', time: '10:00', type: 'habit', repeat: 'daily' });
-    tm.addTask({ title: 'Keep me',   time: '11:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'Delete me', from: '10:00', to: '10:30', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'Keep me', from: '11:00', to: '11:30', type: 'habit', repeat: 'daily' });
     assertEqual(tm.getTodayTasks().length, 2, '2 tasks before delete');
 
     const [first] = tm.getTodayTasks();
@@ -215,12 +215,12 @@ section('TaskManager — updateTask reflects in today');
 {
     const { tm } = freshManager();
     tm.start();
-    tm.addTask({ title: 'Old', time: '08:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'Old', from: '08:00', to: '08:30', type: 'habit', repeat: 'daily' });
     const [t] = tm.getTodayTasks();
-    tm.updateTask(t.taskId, { title: 'New', time: '09:00' });
+    tm.updateTask(t.taskId, { title: 'New', from: '09:00', to: '09:30' });
     const updated = tm.getTodayTasks()[0];
     assertEqual(updated.title, 'New', 'title updated in today tasks');
-    assertEqual(updated.time, '09:00', 'time updated in today tasks');
+    assertEqual(updated.from, '09:00', 'time updated in today tasks');
     tm.stop();
 }
 
@@ -228,7 +228,7 @@ section('TaskManager — tasks-changed signal fires on toggle');
 {
     const { tm } = freshManager();
     tm.start();
-    tm.addTask({ title: 'Signal test', time: '08:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'Signal test', from: '08:00', to: '08:30', type: 'habit', repeat: 'daily' });
     const [t] = tm.getTodayTasks();
 
     let signalFired = 0;
@@ -248,8 +248,8 @@ section('TaskManager — tasks-changed signal fires on add/delete/update');
     let count = 0;
     const id = tm.connect('tasks-changed', () => count++);
 
-    tm.addTask({ title: 'A', time: '07:00', type: 'habit', repeat: 'daily' });
-    tm.addTask({ title: 'B', time: '08:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'A', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'B', from: '08:00', to: '08:30', type: 'habit', repeat: 'daily' });
     const [a] = tm.getTodayTasks();
     tm.updateTask(a.taskId, { title: 'A updated' });
     tm.deleteTask(a.taskId);
@@ -267,9 +267,9 @@ section('TaskManager — getTodaySummary');
     const zero = tm.getTodaySummary();
     assertEqual(zero, { total: 0, completed: 0, pct: 0 }, 'zero summary when no tasks');
 
-    tm.addTask({ title: 'A', time: '07:00', type: 'habit', repeat: 'daily' });
-    tm.addTask({ title: 'B', time: '08:00', type: 'habit', repeat: 'daily' });
-    tm.addTask({ title: 'C', time: '09:00', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'A', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'B', from: '08:00', to: '08:30', type: 'habit', repeat: 'daily' });
+    tm.addTask({ title: 'C', from: '09:00', to: '09:30', type: 'habit', repeat: 'daily' });
 
     const [a, b] = tm.getTodayTasks();
     tm.toggleTask(a.taskId);

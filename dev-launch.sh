@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-EXTENSION_UUID="habbitpop@hritikdev"
+EXTENSION_UUID="pulse@hritikdev"
 EXTENSION_DIR="$HOME/.local/share/gnome-shell/extensions/$EXTENSION_UUID"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -35,6 +35,7 @@ install_extension() {
     ln -sf "$SCRIPT_DIR/extension.js"   "$EXTENSION_DIR/extension.js"
     ln -sf "$SCRIPT_DIR/stylesheet.css" "$EXTENSION_DIR/stylesheet.css"
     ln -sf "$SCRIPT_DIR/src"            "$EXTENSION_DIR/src"
+    ln -sf "$SCRIPT_DIR/apps"           "$EXTENSION_DIR/apps"
 
     success "Symlinks ready."
 }
@@ -87,7 +88,7 @@ echo " The script will:"
 echo "   1. Spin up a private D-Bus session (dbus-daemon --session)"
 echo "   2. Start gnome-shell --headless --virtual-monitor 1920x1080"
 echo "      (no screen needed — renders to /dev/null)"
-echo "   3. Enable habbitpop@hritikdev via gdbus call"
+echo "   3. Enable pulse@hritikdev via gdbus call"
 echo "   4. Print the extension state and any errors"
 echo ""
 echo " To interact / log in a second terminal while this runs:"
@@ -121,7 +122,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Export seed flag so the extension reads it on enable()
-[ -n "$SEED" ] && export HABBITPOP_SEED=1
+[ -n "$SEED" ] && export PULSE_SEED=1
 
 # Step 2: launch headless gnome-shell in the background
 info "Launching gnome-shell --headless --virtual-monitor 1920x1080 …"
@@ -145,12 +146,12 @@ for i in $(seq 1 20); do
 done
 
 # Step 3: enable the extension
-info "Enabling habbitpop@hritikdev…"
+info "Enabling pulse@hritikdev…"
 RESULT=$(gdbus call --session \
     --dest org.gnome.Shell.Extensions \
     --object-path /org/gnome/Shell/Extensions \
     --method org.gnome.Shell.Extensions.EnableExtension \
-    "habbitpop@hritikdev" 2>&1)
+    "pulse@hritikdev" 2>&1)
 echo "  EnableExtension → $RESULT"
 
 # Step 4: query extension state
@@ -160,7 +161,7 @@ gdbus call --session \
     --dest org.gnome.Shell.Extensions \
     --object-path /org/gnome/Shell/Extensions \
     --method org.gnome.Shell.Extensions.GetExtensionInfo \
-    "habbitpop@hritikdev" 2>&1 | python3 -c "
+    "pulse@hritikdev" 2>&1 | python3 -c "
 import sys, re
 raw = sys.stdin.read()
 # Pull out the 'state' value: 1=ENABLED, 2=DISABLED, 3=ERROR, 6=INITIALIZED
@@ -178,7 +179,7 @@ ERRORS=$(gdbus call --session \
     --dest org.gnome.Shell.Extensions \
     --object-path /org/gnome/Shell/Extensions \
     --method org.gnome.Shell.Extensions.GetExtensionErrors \
-    "habbitpop@hritikdev" 2>&1)
+    "pulse@hritikdev" 2>&1)
 if echo "$ERRORS" | grep -q "'\\|\""; then
     warn "Extension reported errors:"
     echo "$ERRORS"

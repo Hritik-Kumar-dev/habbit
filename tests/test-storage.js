@@ -99,7 +99,7 @@ section('Storage — initial state');
 section('Storage — addTask / getTasks');
 {
     const s = freshStorage();
-    const t = s.addTask({ title: 'Test', time: '08:00', type: 'habit', repeat: 'daily' });
+    const t = s.addTask({ title: 'Test', from: '08:00', to: '08:30', type: 'habit', repeat: 'daily' });
     assert(t.id.startsWith('t_'), 'id is prefixed t_');
     assert(typeof t.createdAt === 'string', 'createdAt is string');
     assertEqual(s.getTasks().length, 1, 'one task after add');
@@ -110,18 +110,18 @@ section('Storage — addTask / getTasks');
 section('Storage — updateTask');
 {
     const s = freshStorage();
-    const t = s.addTask({ title: 'Old title', time: '09:00', type: 'todo', repeat: 'none' });
-    s.updateTask(t.id, { title: 'New title', time: '10:00' });
+    const t = s.addTask({ title: 'Old title', from: '09:00', to: '09:30', type: 'todo', repeat: 'none' });
+    s.updateTask(t.id, { title: 'New title', from: '10:00', to: '10:30' });
     const updated = s.getTasks().find(x => x.id === t.id);
     assertEqual(updated.title, 'New title', 'title updated');
-    assertEqual(updated.time, '10:00', 'time updated');
+    assertEqual(updated.from, '10:00', 'time updated');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 section('Storage — deleteTask');
 {
     const s = freshStorage();
-    const t = s.addTask({ title: 'Delete me', time: '07:00', type: 'habit', repeat: 'daily' });
+    const t = s.addTask({ title: 'Delete me', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
     assertEqual(s.getTasks().length, 1, 'one task before delete');
     s.deleteTask(t.id);
     assertEqual(s.getTasks().length, 0, 'zero tasks after delete');
@@ -131,7 +131,7 @@ section('Storage — deleteTask');
 section('Storage — rolloverDay (daily habit)');
 {
     const s = freshStorage();
-    s.addTask({ title: 'Daily', time: '07:00', type: 'habit', repeat: 'daily' });
+    s.addTask({ title: 'Daily', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
     s.rolloverDay(new Date());
     const day = s.getDay(new Date());
     assertEqual(day.tasks.length, 1, 'daily task appears today');
@@ -144,8 +144,8 @@ section('Storage — rolloverDay (weekday repeat)');
 {
     const s = freshStorage();
     // Create a task that only repeats on days 1–5 (Mon–Fri)
-    s.addTask({ title: 'Weekday', time: '09:00', type: 'habit', repeat: { weekdays: [1,2,3,4,5] } });
-    s.addTask({ title: 'Weekend', time: '10:00', type: 'habit', repeat: { weekdays: [0,6] } });
+    s.addTask({ title: 'Weekday', from: '09:00', to: '09:30', type: 'habit', repeat: { weekdays: [1,2,3,4,5] } });
+    s.addTask({ title: 'Weekend', from: '10:00', to: '10:30', type: 'habit', repeat: { weekdays: [0,6] } });
 
     // Build explicit Monday and Sunday dates (no dependency on "today")
     // Use a fixed reference: 2026-10-05 is a Monday, 2026-10-04 is a Sunday
@@ -171,9 +171,9 @@ section('Storage — rolloverDay (weekday repeat)');
 section('Storage — setTaskCompleted + completionPct');
 {
     const s = freshStorage();
-    const t1 = s.addTask({ title: 'A', time: '07:00', type: 'habit', repeat: 'daily' });
-    const t2 = s.addTask({ title: 'B', time: '08:00', type: 'habit', repeat: 'daily' });
-    const t3 = s.addTask({ title: 'C', time: '09:00', type: 'habit', repeat: 'daily' });
+    const t1 = s.addTask({ title: 'A', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
+    const t2 = s.addTask({ title: 'B', from: '08:00', to: '08:30', type: 'habit', repeat: 'daily' });
+    const t3 = s.addTask({ title: 'C', from: '09:00', to: '09:30', type: 'habit', repeat: 'daily' });
     s.rolloverDay(new Date());
 
     s.setTaskCompleted(t1.id, true);
@@ -199,7 +199,7 @@ section('Storage — setTaskCompleted + completionPct');
 section('Storage — rollover preserves existing completion state');
 {
     const s = freshStorage();
-    const t = s.addTask({ title: 'Keep', time: '07:00', type: 'habit', repeat: 'daily' });
+    const t = s.addTask({ title: 'Keep', from: '07:00', to: '07:30', type: 'habit', repeat: 'daily' });
     s.rolloverDay(new Date());
     s.setTaskCompleted(t.id, true);
 
@@ -215,7 +215,7 @@ section('Storage — corrupt file recovery');
 {
     // Set up a fresh isolated dir, then overwrite the data file with garbage
     _currentTmpDir = GLib.build_filenamev([BASE_TMP, 'corrupt-test']);
-    const dataDir = GLib.build_filenamev([_currentTmpDir, 'habbitpop@hritikdev']);
+    const dataDir = GLib.build_filenamev([_currentTmpDir, 'pulse@hritikdev']);
     const dataPath = GLib.build_filenamev([dataDir, 'data.json']);
 
     const corruptDir = Gio.File.new_for_path(dataDir);
@@ -259,7 +259,7 @@ section('Storage — save + reload round-trip');
     _currentTmpDir = GLib.build_filenamev([BASE_TMP, 'roundtrip-test']);
     const s = new Storage();
     s.load();
-    const t = s.addTask({ title: 'Persist', time: '08:30', type: 'todo', repeat: 'none' });
+    const t = s.addTask({ title: 'Persist', from: '08:30', to: '09:00', type: 'todo', repeat: 'none' });
     s.rolloverDay(new Date());
     s.setTaskCompleted(t.id, true);
 

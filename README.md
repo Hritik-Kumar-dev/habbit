@@ -1,61 +1,66 @@
-# HabbitPop
+# PULSE
 
 A GNOME Shell extension for Ubuntu 26.04 / GNOME Shell 50.
 
-Replaces the default date/time calendar popover with a fast productivity dashboard:
-
-- **Left (61.8%)**: Today's habits & todos — toggle completion, add/edit/delete tasks
-- **Right (38.2%)**: GitHub-style heatmap of the last 12 weeks + daily summary
-
-Click the clock in the top bar → instant "what do I do now, how consistent have I been" glance.
+Adds its own top-bar indicator (heartbeat icon + "7/9" progress label). Clicking it opens a compact popover — daily habit checklist + 12-week heatmap. The native date/time calendar and notifications are completely untouched.
 
 ---
 
 ## Architecture
 
 ```
-habbitpop@hritikdev/
-├── extension.js       # Entry point — Extension class, popover injection
-├── metadata.json      # Extension metadata (uuid, shell-version)
-├── stylesheet.css     # All dark-theme styles (GNOME CSS subset)
+pulse@hritikdev/
+├── extension.js          # Entry point — PanelMenu.Button indicator, FileMonitor
+├── metadata.json         # uuid: pulse@hritikdev, shell-version: ["50"]
+├── stylesheet.css        # Dark charcoal theme (GNOME CSS subset)
 ├── src/
-│   ├── storage.js     # Data layer: atomic JSON reads/writes, schema
-│   ├── taskManager.js # Business logic: rollover, states, heatmap data
-│   ├── leftPanel.js   # Today's habits/todos UI
-│   ├── rightPanel.js  # Heatmap + summary UI
-│   └── heatmap.js     # Heatmap grid widget
-├── dev-launch.sh      # Dev helper: install + headless shell session
-├── seed.js            # Generate 12 weeks of fake history for testing
+│   ├── storage.js        # Data layer: atomic JSON, schema v2, migration
+│   ├── taskManager.js    # Business logic: rollover, states, heatmap data
+│   ├── pulsePopover.js   # Popover UI: header + task list + heatmap + bottom bar
+│   └── heatmap.js        # Heatmap grid widget (St.Widget cells)
+├── apps/
+│   ├── settings.js       # GTK4/Adwaita settings window (add/edit/delete habits)
+│   └── report.js         # GTK4 full-screen monthly report with Cairo charts
+├── dev-launch.sh         # Headless shell for testing
+├── seed.js               # Generate 12 weeks of fake history
 ├── tests/
-│   ├── test-storage.js     # Unit tests for storage layer
-│   └── test-taskManager.js # Unit tests for business logic
+│   ├── test-storage.js   # 33 unit tests for storage layer
+│   └── test-taskManager.js # 43 unit tests for business logic
 └── README.md
 ```
 
-### Layer separation
+### How it hooks into the shell
+
+**Does not touch the native DateMenu.** Adds its own `PanelMenu.Button` via `Main.panel.addToStatusArea('pulse', indicator)`. The indicator's `menu.box` hosts the `PulsePopover` widget directly. `disable()` calls `indicator.destroy()` — nothing else to clean up.
+
+### Popover layout (single column, ~480px wide)
 
 ```
-extension.js (shell integration)
-    └── HabbitPopLayout
-            ├── LeftPanel  (src/leftPanel.js)
-            └── RightPanel (src/rightPanel.js)
-                    └── Heatmap (src/heatmap.js)
-
-TaskManager (src/taskManager.js)
-    └── Storage (src/storage.js)
-              └── ~/.local/share/habbitpop@hritikdev/data.json
+┌──────────────────────────────────┐
+│  PULSE    Sun, Oct 5   7/9 · 78% │  header
+├──────────────────────────────────┤
+│  ● Morning exercise  07:00–07:30 │  task list
+│  ○ Read 30 min       08:30–09:00 │  (scrollable, max 260px)
+│  …                               │
+├──────────────────────────────────┤
+│  [12-week heatmap]               │  compact heatmap
+│  Less ░▒▓█ More                  │  legend
+├──────────────────────────────────┤
+│  [ ⚙ Settings ]  [ 📊 Report ]   │  bottom bar
+└──────────────────────────────────┘
 ```
 
-### Data format
+### Data format (v2)
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "tasks": [
     {
       "id": "t_1727982000000_123456",
       "title": "Morning exercise",
-      "time": "07:00",
+      "from": "07:00",
+      "to":   "07:30",
       "type": "habit",
       "repeat": "daily",
       "createdAt": "2026-10-01T00:00:00.000Z"
@@ -68,7 +73,8 @@ TaskManager (src/taskManager.js)
         {
           "taskId": "t_1727982000000_123456",
           "title": "Morning exercise",
-          "time": "07:00",
+          "from": "07:00",
+          "to":   "07:30",
           "completed": true,
           "completedAt": "2026-10-03T07:23:00.000Z"
         }
@@ -79,170 +85,122 @@ TaskManager (src/taskManager.js)
 }
 ```
 
-**repeat** can be:
-- `"none"` — single todo (shows every day until deleted)
-- `"daily"` — appears every day
-- `{ "weekdays": [1,2,3,4,5] }` — Mon–Fri (0=Sun, 1=Mon … 6=Sat)
+### Migration from HabbitPop (v1 → v2)
 
-**Task states** (computed at runtime, not stored):
+On first enable, `storage.migrateFromHabbitpop()` runs:
+- Copies `~/.local/share/habbitpop@hritikdev/data.json` → `pulse@hritikdev/`
+- Maps `time` → `from`, sets `to = from + 30 min`
+- Old dir is left intact as a backup
+
+### Task states
+
 | State | Condition |
 |-------|-----------|
-| `upcoming` | task time > now |
-| `current` | task time ≤ now < time + 60 min |
-| `missed` | task time + 60 min < now, not completed |
+| `upcoming`  | now < from |
+| `current`   | from ≤ now < to |
+| `missed`    | now ≥ to, not completed |
 | `completed` | `completed === true` |
 
-### Heatmap intensity levels
+### Heatmap levels
 
-| Level | % completion |
-|-------|-------------|
+| Level | % |
+|-------|---|
 | 0 | 0% |
 | 1 | 1–33% |
 | 2 | 34–66% |
 | 3 | 67–99% |
 | 4 | 100% |
 
-### Popover injection strategy
+### Live refresh (FileMonitor)
 
-1. Locate `Main.panel.statusArea.dateMenu.menu.box`
-2. Navigate to the `#calendarArea` hbox (bin → calendarArea)
-3. **Hide** all existing children (calendar, message list)
-4. **Inject** our `HabbitPopLayout` as a new child
-5. On `disable()`: destroy our widget, **show** originals again
-
-No method monkey-patching — only DOM manipulation. Fully reversible.
+`extension.js` watches `data.json` with `Gio.FileMonitor`. When `apps/settings.js` or `apps/report.js` write changes, the extension reloads storage and re-emits `tasks-changed` — the popover updates without reopening.
 
 ---
 
 ## Install
 
-### Symlink into extensions dir (recommended for development)
-
 ```bash
-EXT_DIR="$HOME/.local/share/gnome-shell/extensions/habbitpop@hritikdev"
-mkdir -p "$EXT_DIR"
+EXT_DIR="$HOME/.local/share/gnome-shell/extensions/pulse@hritikdev"
+rm -rf "$EXT_DIR" && mkdir -p "$EXT_DIR"
 ln -sf "$(pwd)/metadata.json"  "$EXT_DIR/metadata.json"
 ln -sf "$(pwd)/extension.js"   "$EXT_DIR/extension.js"
 ln -sf "$(pwd)/stylesheet.css" "$EXT_DIR/stylesheet.css"
 ln -sf "$(pwd)/src"            "$EXT_DIR/src"
+ln -sf "$(pwd)/apps"           "$EXT_DIR/apps"
 ```
 
-Or use the dev script (handles clean reinstall automatically):
+Or use `./dev-launch.sh` which does this automatically.
 
+**Then log out and back in**, then:
 ```bash
-./dev-launch.sh
+gnome-extensions enable pulse@hritikdev
 ```
-
-### Enable in your live session
-
-On Wayland, the running shell **only scans the extensions dir at startup** — `gnome-extensions enable` won't find a newly-installed extension in a running session. The options are:
-
-1. **Log out and log back in** — GNOME Shell rescans on startup, then:
-   ```bash
-   gnome-extensions enable habbitpop@hritikdev
-   ```
-2. **Use the headless test session** (no logout needed, see Testing below).
 
 ---
 
 ## Testing
 
-### Headless GNOME Shell session (no logout needed)
-
-`gnome-shell --nested` was removed in GNOME 45. The correct dev workflow for GNOME 50 uses `--headless --virtual-monitor` on a private D-Bus session:
+### Headless session (no logout needed)
 
 ```bash
-./dev-launch.sh
+./dev-launch.sh          # installs + launches headless shell
+./dev-launch.sh --seed   # also seeds 12 weeks of fake data
+./dev-launch.sh --logs   # tail logs in another terminal
 ```
 
-This script:
-1. Installs extension symlinks (clean, idempotent)
-2. Starts a `dbus-daemon --session` private bus
-3. Launches `gnome-shell --headless --virtual-monitor 1920x1080`
-4. Calls `gdbus EnableExtension habbitpop@hritikdev`
-5. Reports extension state and any errors
+`gnome-shell --nested` was removed in GNOME 45. This script uses `--headless --virtual-monitor 1920x1080` on a private dbus-daemon session.
 
-To also seed 12 weeks of fake heatmap data first:
+### Seed heatmap data
 
 ```bash
-./dev-launch.sh --seed
+gjs -m seed.js    # always works
+./seed.js         # via shebang (chmod +x already set)
 ```
 
-### Seed data (heatmap testing)
-
-```bash
-# Run directly (always works):
-gjs -m seed.js
-
-# Or via shebang (after chmod +x seed.js):
-./seed.js
-```
-
-> Note: bare `gjs seed.js` (without `-m`) does **not** work — ESM `import`
-> requires module mode. Use `gjs -m` or the shebang invocation.
-
-### Unit tests
+### Unit tests (no display needed)
 
 ```bash
 gjs -m tests/test-storage.js
 gjs -m tests/test-taskManager.js
 ```
 
-Both run without a display, GNOME Shell, or any special setup. They use an
-isolated temp directory and clean up after themselves.
-
 ```
 test-storage.js:     33 passed, 0 failed
 test-taskManager.js: 43 passed, 0 failed
 ```
 
+### Run apps standalone
+
+```bash
+gjs -m apps/settings.js   # Settings window
+gjs -m apps/report.js     # Monthly report
+```
+
 ### View logs
 
 ```bash
-# In another terminal while dev-launch.sh is running:
-./dev-launch.sh --logs
-
-# Or directly:
-journalctl -f -o cat _COMM=gnome-shell | grep HabbitPop
+journalctl -f -o cat _COMM=gnome-shell | grep PULSE
 ```
-
-### After code changes
-
-Since symlinks point directly at source files, just re-enable the extension in
-the headless session — no copy step needed:
-
-```bash
-gdbus call --session \
-  --dest org.gnome.Shell.Extensions \
-  --object-path /org/gnome/Shell/Extensions \
-  --method org.gnome.Shell.Extensions.ReloadExtension \
-  "habbitpop@hritikdev"
-```
-
-Or stop and restart `dev-launch.sh`.
 
 ---
 
 ## Development notes
 
 - **GNOME Shell 50.1** on Ubuntu 26.04 LTS
-- ESM module format (`import`/`export`) — required for GNOME 45+
-- `stylesheet.css` uses the GNOME CSS subset — no `grid`, no `fr` units,
-  no `calc()` with complex expressions, no `var()`, no `border-radius: %`
-- All widgets are `St.*` / `Clutter.*` — no HTML/web technology
-- `St.ScrollView.child` requires an `StScrollable`; plain `St.Widget` is not
-  scrollable — always wrap in `St.BoxLayout` first
-- `Clutter.Actor.raise_top()` was removed in GNOME 45 — don't call it
-- Storage: `~/.local/share/habbitpop@hritikdev/data.json`
-- Atomic writes: write to `.tmp` then `GLib.rename()`
+- ESM format (`import`/`export`) — required for GNOME 45+
+- GNOME CSS subset: no `grid`, no `fr`, no `var()`, no `border-radius: %`
+- `St.ScrollView.child` requires `StScrollable` — wrap `St.Widget` in `St.BoxLayout`
+- `Clutter.Actor.raise_top()` removed in GNOME 45 — don't use it
+- Atomic writes: `.tmp` file then `GLib.rename()`
+- Data dir: `~/.local/share/pulse@hritikdev/data.json`
 
-### Future scope (not in MVP)
+### Future scope
+
 - Streaks counter
-- Weekly stats panel
-- Task categories / tags
-- Desktop notifications at task time
-- Keyboard shortcuts (open popover, quick-add)
-- GitHub contribution sync
+- Notifications at habit start time
+- Keyboard shortcut to open popover
+- iCloud/Nextcloud sync
+- Widget for lock screen
 
 ---
 
@@ -250,14 +208,10 @@ Or stop and restart `dev-launch.sh`.
 
 ```bash
 ./dev-launch.sh --uninstall
-# Then: log out / log in
+# log out / back in
 ```
 
-Manual:
+Data is preserved at `~/.local/share/pulse@hritikdev/`. Remove manually if desired:
 ```bash
-gnome-extensions disable habbitpop@hritikdev
-rm -rf "$HOME/.local/share/gnome-shell/extensions/habbitpop@hritikdev"
-# Data is kept at ~/.local/share/habbitpop@hritikdev/
-# To also remove data:
-rm -rf "$HOME/.local/share/habbitpop@hritikdev"
+rm -rf ~/.local/share/pulse@hritikdev
 ```

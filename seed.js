@@ -6,7 +6,7 @@
  *   gjs -m seed.js        ← always works
  *   ./seed.js             ← works after: chmod +x seed.js
  *
- * Or set HABBITPOP_SEED=1 before enabling the extension
+ * Or set PULSE_SEED=1 before enabling the extension
  * (extension calls storage.seedFakeHistory() on load when set).
  *
  * Writes to the same data.json the extension uses.
@@ -15,7 +15,7 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
-const DATA_DIR = GLib.build_filenamev([GLib.get_user_data_dir(), 'habbitpop@hritikdev']);
+const DATA_DIR = GLib.build_filenamev([GLib.get_user_data_dir(), 'pulse@hritikdev']);
 const DATA_PATH = GLib.build_filenamev([DATA_DIR, 'data.json']);
 
 function dateKey(d) {

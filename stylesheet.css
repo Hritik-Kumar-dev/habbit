@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
-   HabbitPop — stylesheet.css
+   PULSE — stylesheet.css
    Dark charcoal theme · GNOME/Adwaita-compatible CSS subset
 
    Color palette:
@@ -13,21 +13,115 @@
      text:        #F2F2F2   (primary text)
      muted:       #A0A4AD   (muted / secondary text)
      dim:         #5A5E68   (very muted)
-     badge-now:   #4B9EFF   (NOW badge bg)
-     badge-miss:  #555     (MISSED badge — never red)
 ═══════════════════════════════════════════════════════════════════════════════ */
 
-/* ── Popover container ────────────────────────────────────────────────────── */
+/* ── PULSE top-bar indicator ────────────────────────────────────────────── */
 
-.datemenu-popover {
+.pulse-indicator-box {
+    spacing: 4px;
+    padding: 0 4px;
+}
+
+.pulse-indicator-icon {
+    icon-size: 16px;
+    color: #4B9EFF;
+}
+
+.pulse-indicator-label {
+    font-size: 11px;
+    color: #A0A4AD;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── PULSE popover ──────────────────────────────────────────────────────── */
+
+.pulse-popover {
     background-color: #111318;
     border: 1px solid #2A2E38;
-    border-radius: 14px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+    border-radius: 12px;
     padding: 0;
 }
 
-/* ── Main layout container ────────────────────────────────────────────────── */
+/* ── PULSE header ────────────────────────────────────────────────────────── */
+
+.pulse-header {
+    padding: 14px 16px 10px 16px;
+    border-bottom: 1px solid #2A2E38;
+    spacing: 8px;
+}
+
+.pulse-wordmark {
+    font-size: 13px;
+    font-weight: bold;
+    color: #4B9EFF;
+    letter-spacing: 2px;
+}
+
+.pulse-header-date {
+    font-size: 12px;
+    color: #A0A4AD;
+}
+
+.pulse-header-summary {
+    font-size: 12px;
+    color: #F2F2F2;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Task scroll area ────────────────────────────────────────────────────── */
+
+.pulse-task-scroll {
+    max-height: 260px;
+    padding: 4px 8px;
+}
+
+/* ── Heatmap (compact) ───────────────────────────────────────────────────── */
+
+.pulse-heatmap-scroll {
+    padding: 8px 12px 4px 12px;
+}
+
+/* ── Bottom bar ──────────────────────────────────────────────────────────── */
+
+.pulse-bottom-bar {
+    padding: 10px 12px 12px 12px;
+    border-top: 1px solid #2A2E38;
+    spacing: 8px;
+}
+
+.pulse-bar-btn {
+    padding: 8px 12px;
+    border-radius: 7px;
+    background-color: #20232A;
+    border: 1px solid #2A2E38;
+    color: #A0A4AD;
+    font-size: 12px;
+}
+
+.pulse-bar-btn:hover {
+    background-color: #2A2E38;
+    color: #F2F2F2;
+}
+
+.pulse-bar-btn-accent {
+    background-color: rgba(75, 158, 255, 0.12);
+    border-color: rgba(75, 158, 255, 0.3);
+    color: #4B9EFF;
+}
+
+.pulse-bar-btn-accent:hover {
+    background-color: rgba(75, 158, 255, 0.22);
+    border-color: rgba(75, 158, 255, 0.5);
+}
+
+/* ── Form: from–to dash ──────────────────────────────────────────────────── */
+
+.hp-form-dash {
+    color: #5A5E68;
+    padding: 0 4px;
+}
+
+/* ── Legacy hp-container (kept for compatibility) ────────────────────────── */
 
 .hp-container {
     background-color: transparent;
