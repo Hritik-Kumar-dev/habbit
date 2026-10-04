@@ -81,7 +81,14 @@ class RightPanel extends St.BoxLayout {
         const data = this._taskManager.getHeatmapData(84);
         this._heatmap = new Heatmap(data);
 
-        // Wrap in a scrollview in case the grid is wider than the panel
+        // Wrap in a scrollview in case the grid is wider than the panel.
+        // The heatmap itself is a plain St.Widget (absolute positioning), but
+        // St.ScrollView.child only accepts an StScrollable → needs a wrapper.
+        const holder = new St.BoxLayout({
+            style_class: 'hp-heatmap-holder',
+        });
+        holder.add_child(this._heatmap);
+
         const scroll = new St.ScrollView({
             style_class: 'hp-heatmap-scroll',
             hscrollbar_policy: St.PolicyType.AUTOMATIC,
@@ -89,7 +96,7 @@ class RightPanel extends St.BoxLayout {
             overlay_scrollbars: true,
             x_expand: true,
         });
-        scroll.child = this._heatmap;
+        scroll.child = holder;
         this._heatmapScroll = scroll;
         this.add_child(scroll);
     }

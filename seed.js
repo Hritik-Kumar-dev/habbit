@@ -66,6 +66,25 @@ for (const t of sampleTasks) {
 
 const today = new Date();
 
+// Deterministic pseudo-random in [0,1) from an arbitrary key — Math.sin(i * k)
+// alone gives the same value for every task of a day, which flattens the
+// heatmap to 0%/100% days only.
+function rng(...parts) {
+    const key = parts.join('|');
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i++) {
+        h ^= key.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+    }
+    // xorshift finaliser so nearby keys decorrelate
+    h ^= h >>> 15;
+    h = Math.imul(h, 2246822507) >>> 0;
+    h ^= h >>> 13;
+    h = Math.imul(h, 3266489909) >>> 0;
+    h ^= h >>> 16;
+    return h / 4294967296;
+}
+
 // Generate 84 days (12 weeks) of history
 for (let i = 83; i >= 0; i--) {
     const d = new Date(today);
@@ -79,15 +98,18 @@ for (let i = 83; i >= 0; i--) {
     if (data.days[key]?.tasks?.some(t => !t.taskId.startsWith('seed_'))) continue;
 
     // Simulate a realistic completion curve:
-    // Weekends slightly lower, some off days, general ~65% average
+    // weekends slightly lower, the odd completely-off day, ~60% average.
+    // The spread matters — it has to exercise all five heatmap levels.
     const dow = d.getDay();
     const isWeekend = dow === 0 || dow === 6;
 
-    // Base completion probability
-    const base = isWeekend ? 0.50 : 0.70;
-    // Add some noise
-    const dayRng = (Math.sin(i * 7.3 + 1.5) + 1) / 2; // deterministic pseudo-random
-    const pFull  = base + (dayRng - 0.5) * 0.3;
+    // ~8% of days are complete rest days (0%)
+    const isRestDay = rng('rest', key) < 0.08;
+
+    // Base completion probability + noise
+    const base = isWeekend ? 0.45 : 0.68;
+    const dayRng = rng('day', key); // deterministic pseudo-random
+    const pFull = isRestDay ? 0 : Math.max(0.1, Math.min(1, base + (dayRng - 0.5) * 0.5));
 
     const dayTasks = sampleTasks
         .filter(t => {
@@ -97,7 +119,8 @@ for (let i = 83; i >= 0; i--) {
             return false;
         })
         .map(t => {
-            const taskRng = (Math.sin(i * 3.7 + t.id.charCodeAt(5)) + 1) / 2;
+            // Per-task jitter: different task, different outcome
+            const taskRng = rng('task', key, t.id);
             const completed = taskRng < pFull;
             return {
                 taskId: t.id,

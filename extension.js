@@ -39,11 +39,16 @@ import { RightPanel } from './src/rightPanel.js';
 const REF_WIDTH  = 1300;
 const REF_HEIGHT = 700;
 
-// Golden ratio: φ = 1.618; left = φ/(1+φ), right = 1/(1+φ)
+// Golden ratio: φ = 1.618; left = φ/(1+φ) ≈ 0.618, right = 1/(1+φ) ≈ 0.382
 const PHI = 1.618033988749895;
 const LEFT_FRAC  = PHI / (1 + PHI);   // ≈ 0.618
-const RIGHT_FRAC = 1 / (1 + PHI);      // ≈ 0.382
 const PANEL_GAP  = 16; // px gap between left and right
+
+// Padding of .hp-container in stylesheet.css. The panel widths computed below
+// are the *content* box, so this has to come out of the popover size —
+// otherwise the container's minimum width exceeds the popover and the right
+// panel gets clipped.
+const CONTAINER_PAD = 20;
 
 // ── HabbitPopLayout ───────────────────────────────────────────────────────────
 
@@ -60,20 +65,22 @@ class HabbitPopLayout extends St.BoxLayout {
             y_expand: true,
         });
 
-        // Compute panel widths from available space
-        const availW = popoverWidth - PANEL_GAP;
+        // Compute panel widths from available space.
+        // popoverWidth/Height include the .hp-container padding.
+        const availW = popoverWidth - 2 * CONTAINER_PAD;
+        const availH = popoverHeight - 2 * CONTAINER_PAD;
         const leftW  = Math.floor(availW * LEFT_FRAC);
-        const rightW = Math.floor(availW * RIGHT_FRAC);
+        const rightW = availW - PANEL_GAP - leftW;
 
         // Left panel
         const leftWrap = new St.Widget({
             style_class: 'hp-panel-wrap',
             width: leftW,
-            height: popoverHeight,
+            height: availH,
             clip_to_allocation: true,
         });
         this._leftPanel = new LeftPanel(taskManager);
-        this._leftPanel.set_size(leftW, popoverHeight);
+        this._leftPanel.set_size(leftW, availH);
         leftWrap.add_child(this._leftPanel);
         this.add_child(leftWrap);
 
@@ -85,11 +92,11 @@ class HabbitPopLayout extends St.BoxLayout {
         const rightWrap = new St.Widget({
             style_class: 'hp-panel-wrap',
             width: rightW,
-            height: popoverHeight,
+            height: availH,
             clip_to_allocation: true,
         });
         this._rightPanel = new RightPanel(taskManager);
-        this._rightPanel.set_size(rightW, popoverHeight);
+        this._rightPanel.set_size(rightW, availH);
         rightWrap.add_child(this._rightPanel);
         this.add_child(rightWrap);
     }

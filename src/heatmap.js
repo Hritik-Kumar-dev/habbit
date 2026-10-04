@@ -20,8 +20,9 @@ const CELL_STEP = CELL_SIZE + CELL_GAP;
 // Month abbreviations
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// Day abbreviations (Mon/Wed/Fri only shown for compactness)
-const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+// Day abbreviations, indexed by grid row (Mon=0 … Sun=6).
+// Only Mon/Wed/Fri are shown, for compactness.
+const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 
 /**
  * Format a "YYYY-MM-DD" string to "Month Day" e.g. "October 3"
@@ -217,7 +218,8 @@ class Heatmap extends St.Widget {
         const [cx, cy] = cell.get_position();
         this._tooltip.set_position(cx, cy - 24);
         this.add_child(this._tooltip);
-        this._tooltip.raise_top();
+        // No raise_top() — it was removed from Clutter. The tooltip is added
+        // last, so it is already the topmost child.
     }
 
     _hideTooltip() {
