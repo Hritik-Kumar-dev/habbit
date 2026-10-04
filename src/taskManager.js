@@ -1,18 +1,16 @@
 /**
- * taskManager.js — HabbitPop business logic layer
+ * taskManager.js — PULSE business logic layer
  *
- * Sits between storage.js (raw data) and the UI panels.
- * Handles:
- *   - Date rollover (midnight + resume-from-suspend)
- *   - Task state computation (upcoming / current / completed / missed)
- *   - Recurring habit generation
- *   - Signals to notify UI of changes
+ * Task state uses from/to window:
+ *   upcoming:  now < from
+ *   current:   from ≤ now < to
+ *   missed:    now ≥ to, not completed
+ *   completed: entry.completed === true
  */
 
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 
-// ── Task states ────────────────────────────────────────────────────────────────
 export const TaskState = Object.freeze({
     UPCOMING:  'upcoming',
     CURRENT:   'current',
@@ -20,49 +18,30 @@ export const TaskState = Object.freeze({
     MISSED:    'missed',
 });
 
-/**
- * Parse "HH:MM" into minutes since midnight.
- * @param {string} time
- * @returns {number}
- */
-function _timeToMinutes(time) {
-    const [h, m] = time.split(':').map(Number);
+function _toMins(hhmm) {
+    if (!hhmm) return 0;
+    const [h, m] = hhmm.split(':').map(Number);
     return h * 60 + m;
 }
 
 /**
- * Compute what state a task entry is in right now.
- *
- * Rules:
- *   - completed: entry.completed === true
- *   - current: task time window is active (time ≤ now < time + 60 min)
- *   - missed: task time has passed more than 60 min ago and not completed
- *   - upcoming: task time is in the future (or within 60 min window)
- *
- * @param {object} entry  { taskId, title, time, completed, completedAt }
- * @param {Date}   now
- * @returns {string}  one of TaskState.*
+ * Compute task state from from/to window.
+ * Falls back to legacy `time` field (+ 60-min window) if no `to`.
  */
 export function computeTaskState(entry, now) {
     if (entry.completed) return TaskState.COMPLETED;
 
-    const taskMins = _timeToMinutes(entry.time);
     const nowMins = now.getHours() * 60 + now.getMinutes();
+    const fromMins = _toMins(entry.from || entry.time);
+    const toMins   = entry.to ? _toMins(entry.to) : fromMins + 60;
 
-    if (nowMins >= taskMins && nowMins < taskMins + 60)
-        return TaskState.CURRENT;
-
-    if (nowMins >= taskMins + 60)
-        return TaskState.MISSED;
-
+    if (nowMins >= fromMins && nowMins < toMins) return TaskState.CURRENT;
+    if (nowMins >= toMins)                       return TaskState.MISSED;
     return TaskState.UPCOMING;
 }
 
 /**
- * Compute the completion intensity level for the heatmap.
  * 0% → 0, 1-33% → 1, 34-66% → 2, 67-99% → 3, 100% → 4
- * @param {number} pct  0-100
- * @returns {number} 0-4
  */
 export function pctToLevel(pct) {
     if (pct === 0)  return 0;
@@ -72,15 +51,11 @@ export function pctToLevel(pct) {
     return 4;
 }
 
-// ── TaskManager class ──────────────────────────────────────────────────────────
-
 export class TaskManager extends GObject.Object {
     static {
         GObject.registerClass({
             Signals: {
-                // Emitted when today's task list changes (add/delete/complete)
-                'tasks-changed': {},
-                // Emitted on date rollover
+                'tasks-changed':  {},
                 'day-rolled-over': {},
             },
         }, this);
@@ -90,20 +65,13 @@ export class TaskManager extends GObject.Object {
         super();
         this._storage = storage;
         this._midnightTimer = null;
-        this._today = this._todayKey();
     }
 
-    /**
-     * Start the manager: rollover today, schedule midnight timer.
-     */
     start() {
         this._ensureToday();
         this._scheduleMidnight();
     }
 
-    /**
-     * Stop the manager: clear timers.
-     */
     stop() {
         if (this._midnightTimer) {
             GLib.source_remove(this._midnightTimer);
@@ -111,106 +79,67 @@ export class TaskManager extends GObject.Object {
         }
     }
 
-    // ── Today's tasks ─────────────────────────────────────────────────────────
+    // ── Today ─────────────────────────────────────────────────────────────────
 
-    /**
-     * Return today's task entries with computed state.
-     * @returns {object[]}  [...entry, state: TaskState.*]
-     */
     getTodayTasks() {
         const day = this._storage.getDay(new Date());
         const now = new Date();
-        return day.tasks.map(entry => ({
-            ...entry,
-            state: computeTaskState(entry, now),
-        }));
+        return day.tasks.map(e => ({ ...e, state: computeTaskState(e, now) }));
     }
 
-    /**
-     * Toggle a task's completed state.
-     * @param {string} taskId
-     * @returns {boolean} new completed state
-     */
     toggleTask(taskId) {
         const day = this._storage.getDay(new Date());
         const entry = day.tasks.find(t => t.taskId === taskId);
         if (!entry) return false;
-
-        const newState = !entry.completed;
-        this._storage.setTaskCompleted(taskId, newState);
+        const next = !entry.completed;
+        this._storage.setTaskCompleted(taskId, next);
         this.emit('tasks-changed');
-        return newState;
+        return next;
     }
 
-    /**
-     * Add a new task definition and immediately generate today's entry.
-     * @param {object} taskDef  { title, time, type, repeat }
-     * @returns {object} created task
-     */
-    addTask(taskDef) {
-        const task = this._storage.addTask(taskDef);
-        // Re-rollover today to include the new task
+    addTask(def) {
+        const task = this._storage.addTask(def);
         this._storage.rolloverDay(new Date());
         this.emit('tasks-changed');
         return task;
     }
 
-    /**
-     * Update a task definition and re-rollover today.
-     * @param {string} id
-     * @param {object} updates
-     */
     updateTask(id, updates) {
         this._storage.updateTask(id, updates);
         this._storage.rolloverDay(new Date());
         this.emit('tasks-changed');
     }
 
-    /**
-     * Delete a task definition.
-     * @param {string} id
-     */
     deleteTask(id) {
         this._storage.deleteTask(id);
         this._storage.rolloverDay(new Date());
         this.emit('tasks-changed');
     }
 
-    // ── Heatmap data ──────────────────────────────────────────────────────────
+    // ── Heatmap ───────────────────────────────────────────────────────────────
 
-    /**
-     * Return the last N days of completion data for the heatmap.
-     * @param {number} [days=84]  12 weeks
-     * @returns {object[]} [{date, completionPct, level, tasks}, ...]
-     */
     getHeatmapData(days = 84) {
         const allDays = this._storage.getAllDays();
         const result = [];
         const today = new Date();
-
         for (let i = days - 1; i >= 0; i--) {
             const d = new Date(today);
             d.setDate(d.getDate() - i);
-            const key = this._keyFromDate(d);
-            const dayRecord = allDays[key];
-            const pct = dayRecord ? dayRecord.completionPct : 0;
-
+            const key = this._key(d);
+            const rec = allDays[key];
+            const pct = rec ? rec.completionPct : 0;
             result.push({
                 date: key,
                 dateObj: new Date(d),
                 completionPct: pct,
                 level: pctToLevel(pct),
-                tasks: dayRecord ? dayRecord.tasks : [],
+                tasks: rec ? rec.tasks : [],
                 isToday: i === 0,
             });
         }
         return result;
     }
 
-    /**
-     * Today's summary stats.
-     * @returns {{ total: number, completed: number, pct: number }}
-     */
     getTodaySummary() {
         const day = this._storage.getDay(new Date());
         const total = day.tasks.length;
@@ -222,44 +151,25 @@ export class TaskManager extends GObject.Object {
     // ── Private ───────────────────────────────────────────────────────────────
 
     _ensureToday() {
-        const key = this._todayKey();
-        // If the stored day record is missing or empty, do a rollover
         const day = this._storage.getDay(new Date());
-        if (!day.tasks.length) {
+        if (!day.tasks.length)
             this._storage.rolloverDay(new Date());
-        }
     }
 
     _scheduleMidnight() {
         const now = new Date();
-        const msToMidnight =
-            new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5)
-            - now;
-
-        // GLib.timeout_add only accepts seconds or milliseconds
-        // Use a one-shot timer, then reschedule
-        this._midnightTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, msToMidnight, () => {
+        const ms = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5) - now;
+        this._midnightTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
             this._midnightTimer = null;
-            this._handleMidnight();
+            this._storage.rolloverDay(new Date());
+            this.emit('day-rolled-over');
+            this.emit('tasks-changed');
+            this._scheduleMidnight();
             return GLib.SOURCE_REMOVE;
         });
     }
 
-    _handleMidnight() {
-        this._storage.rolloverDay(new Date());
-        this.emit('day-rolled-over');
-        this.emit('tasks-changed');
-        this._scheduleMidnight();
-    }
-
-    _todayKey() {
-        return this._keyFromDate(new Date());
-    }
-
-    _keyFromDate(d) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
+    _key(d) {
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     }
 }
