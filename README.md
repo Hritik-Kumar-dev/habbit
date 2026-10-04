@@ -24,8 +24,11 @@ habbitpop@hritikdev/
 │   ├── leftPanel.js   # Today's habits/todos UI
 │   ├── rightPanel.js  # Heatmap + summary UI
 │   └── heatmap.js     # Heatmap grid widget
-├── dev-launch.sh      # Dev helper: install + nested shell
+├── dev-launch.sh      # Dev helper: install + headless shell session
 ├── seed.js            # Generate 12 weeks of fake history for testing
+├── tests/
+│   ├── test-storage.js     # Unit tests for storage layer
+│   └── test-taskManager.js # Unit tests for business logic
 └── README.md
 ```
 
@@ -113,74 +116,110 @@ No method monkey-patching — only DOM manipulation. Fully reversible.
 
 ## Install
 
-### Option 1: Symlink (recommended for development)
+### Symlink into extensions dir (recommended for development)
 
 ```bash
 EXT_DIR="$HOME/.local/share/gnome-shell/extensions/habbitpop@hritikdev"
-mkdir -p "$EXT_DIR/src"
+mkdir -p "$EXT_DIR"
 ln -sf "$(pwd)/metadata.json"  "$EXT_DIR/metadata.json"
 ln -sf "$(pwd)/extension.js"   "$EXT_DIR/extension.js"
 ln -sf "$(pwd)/stylesheet.css" "$EXT_DIR/stylesheet.css"
 ln -sf "$(pwd)/src"            "$EXT_DIR/src"
 ```
 
-### Option 2: Copy with dev script
+Or use the dev script (handles clean reinstall automatically):
 
 ```bash
 ./dev-launch.sh
 ```
 
-This copies all files and launches a nested GNOME Shell for testing.
+### Enable in your live session
 
-### Enable
+On Wayland, the running shell **only scans the extensions dir at startup** — `gnome-extensions enable` won't find a newly-installed extension in a running session. The options are:
 
-```bash
-gnome-extensions enable habbitpop@hritikdev
-```
-
-Then **log out and back in** (Wayland) or press **Alt+F2 → r** (X11).
+1. **Log out and log back in** — GNOME Shell rescans on startup, then:
+   ```bash
+   gnome-extensions enable habbitpop@hritikdev
+   ```
+2. **Use the headless test session** (no logout needed, see Testing below).
 
 ---
 
 ## Testing
 
-### Nested Wayland session (recommended)
+### Headless GNOME Shell session (no logout needed)
+
+`gnome-shell --nested` was removed in GNOME 45. The correct dev workflow for GNOME 50 uses `--headless --virtual-monitor` on a private D-Bus session:
 
 ```bash
 ./dev-launch.sh
 ```
 
-Opens a new nested GNOME Shell window. Click the clock to test.
+This script:
+1. Installs extension symlinks (clean, idempotent)
+2. Starts a `dbus-daemon --session` private bus
+3. Launches `gnome-shell --headless --virtual-monitor 1920x1080`
+4. Calls `gdbus EnableExtension habbitpop@hritikdev`
+5. Reports extension state and any errors
 
-### With seed data (heatmap testing)
+To also seed 12 weeks of fake heatmap data first:
 
 ```bash
-# Option A: run seed script directly
-gjs seed.js
+./dev-launch.sh --seed
+```
 
-# Option B: via env flag (extension seeds on enable)
-HABBITPOP_SEED=1 ./dev-launch.sh --seed
+### Seed data (heatmap testing)
+
+```bash
+# Run directly (always works):
+gjs -m seed.js
+
+# Or via shebang (after chmod +x seed.js):
+./seed.js
+```
+
+> Note: bare `gjs seed.js` (without `-m`) does **not** work — ESM `import`
+> requires module mode. Use `gjs -m` or the shebang invocation.
+
+### Unit tests
+
+```bash
+gjs -m tests/test-storage.js
+gjs -m tests/test-taskManager.js
+```
+
+Both run without a display, GNOME Shell, or any special setup. They use an
+isolated temp directory and clean up after themselves.
+
+```
+test-storage.js:     33 passed, 0 failed
+test-taskManager.js: 43 passed, 0 failed
 ```
 
 ### View logs
 
 ```bash
-# Follow GNOME Shell logs filtered to HabbitPop
-journalctl -f -o cat _COMM=gnome-shell | grep HabbitPop
+# In another terminal while dev-launch.sh is running:
+./dev-launch.sh --logs
 
-# Or all GNOME Shell JS errors
-journalctl -f -o cat /usr/bin/gnome-shell
+# Or directly:
+journalctl -f -o cat _COMM=gnome-shell | grep HabbitPop
 ```
 
-### Reload after code changes (Wayland)
+### After code changes
 
-Log out and log back in, or restart the nested session.
+Since symlinks point directly at source files, just re-enable the extension in
+the headless session — no copy step needed:
 
 ```bash
-# Disable and re-enable (picks up stylesheet changes):
-gnome-extensions disable habbitpop@hritikdev
-gnome-extensions enable habbitpop@hritikdev
+gdbus call --session \
+  --dest org.gnome.Shell.Extensions \
+  --object-path /org/gnome/Shell/Extensions \
+  --method org.gnome.Shell.Extensions.ReloadExtension \
+  "habbitpop@hritikdev"
 ```
+
+Or stop and restart `dev-launch.sh`.
 
 ---
 
@@ -188,8 +227,12 @@ gnome-extensions enable habbitpop@hritikdev
 
 - **GNOME Shell 50.1** on Ubuntu 26.04 LTS
 - ESM module format (`import`/`export`) — required for GNOME 45+
-- `stylesheet.css` uses the GNOME CSS subset (no `grid`, no `fr` units, no `calc()` with complex expressions, no `var()`)
+- `stylesheet.css` uses the GNOME CSS subset — no `grid`, no `fr` units,
+  no `calc()` with complex expressions, no `var()`, no `border-radius: %`
 - All widgets are `St.*` / `Clutter.*` — no HTML/web technology
+- `St.ScrollView.child` requires an `StScrollable`; plain `St.Widget` is not
+  scrollable — always wrap in `St.BoxLayout` first
+- `Clutter.Actor.raise_top()` was removed in GNOME 45 — don't call it
 - Storage: `~/.local/share/habbitpop@hritikdev/data.json`
 - Atomic writes: write to `.tmp` then `GLib.rename()`
 
