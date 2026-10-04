@@ -1,114 +1,119 @@
 /**
- * extension.js — HabbitPop GNOME Shell Extension
+ * extension.js — PULSE GNOME Shell Extension
  *
  * GNOME 50 / ESM format.
  *
- * Strategy:
- *   On enable():
- *     1. Access Main.panel.statusArea.dateMenu (DateMenuButton)
- *     2. Find the #calendarArea hbox (first child of the bin inside menu.box)
- *     3. Hide all existing children of calendarArea
- *     4. Inject our own St.BoxLayout with golden-ratio split (left 61.8% | right 38.2%)
+ * Architecture
+ * ────────────
+ * • Adds its own PanelMenu.Button to the top bar via
+ *   Main.panel.addToStatusArea('pulse', this._indicator).
+ * • The native DateMenu (calendar, notifications, clocks, weather) is
+ *   completely untouched — it works exactly as stock GNOME.
+ * • Clicking the PULSE indicator opens the PULSE popover (habit list +
+ *   heatmap) as a standard dropdown attached to the indicator itself.
+ * • disable() destroys the indicator (and thus its popover) and
+ *   disconnects all signals. Nothing is left behind.
  *
- *   On disable():
- *     1. Destroy our widget
- *     2. Show all original children again
- *     3. Disconnect all signals, clear timers
- *
- * No methods are monkey-patched. Only DOM manipulation → clean and review-compliant.
+ * File monitor
+ * ────────────
+ * A Gio.FileMonitor watches the data file. When apps/settings.js or
+ * apps/report.js write changes, the extension reloads storage and
+ * re-emits tasks-changed so the popover refreshes live.
  */
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
-import Meta from 'gi://Meta';
-import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
 import { Storage } from './src/storage.js';
 import { TaskManager } from './src/taskManager.js';
-import { LeftPanel } from './src/leftPanel.js';
-import { RightPanel } from './src/rightPanel.js';
+import { PulsePopover } from './src/pulsePopover.js';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// Popover width — clamped to 92% of screen width at runtime
+const POPOVER_WIDTH = 480;
 
-// Reference popover dimensions (px) — clamped to screen later
-const REF_WIDTH  = 1300;
-const REF_HEIGHT = 700;
+// ── PulseIndicator ─────────────────────────────────────────────────────────────
 
-// Golden ratio: φ = 1.618; left = φ/(1+φ) ≈ 0.618, right = 1/(1+φ) ≈ 0.382
-const PHI = 1.618033988749895;
-const LEFT_FRAC  = PHI / (1 + PHI);   // ≈ 0.618
-const PANEL_GAP  = 16; // px gap between left and right
+const PulseIndicator = GObject.registerClass(
+class PulseIndicator extends PanelMenu.Button {
+    _init(taskManager, extensionPath) {
+        super._init(0.0, 'PULSE');
 
-// Padding of .hp-container in stylesheet.css. The panel widths computed below
-// are the *content* box, so this has to come out of the popover size —
-// otherwise the container's minimum width exceeds the popover and the right
-// panel gets clipped.
-const CONTAINER_PAD = 20;
+        this._taskManager = taskManager;
+        this._extensionPath = extensionPath;
 
-// ── HabbitPopLayout ───────────────────────────────────────────────────────────
+        this._buildTopBarWidget();
+        this._buildPopover();
 
-/**
- * Main container widget injected into the dateMenu popover.
- * Holds left panel + right panel side by side with golden-ratio widths.
- */
-const HabbitPopLayout = GObject.registerClass(
-class HabbitPopLayout extends St.BoxLayout {
-    _init(taskManager, popoverWidth, popoverHeight) {
-        super._init({
-            style_class: 'hp-container',
-            x_expand: true,
-            y_expand: true,
+        // Keep the label in sync whenever tasks change
+        this._changedId = taskManager.connect('tasks-changed', () => this._updateLabel());
+        this._rolledId  = taskManager.connect('day-rolled-over', () => this._updateLabel());
+        this._updateLabel();
+    }
+
+    _buildTopBarWidget() {
+        // Horizontal box: heartbeat icon + "7/9" progress label
+        const box = new St.BoxLayout({
+            style_class: 'pulse-indicator-box',
+            y_align: Clutter.ActorAlign.CENTER,
         });
 
-        // Compute panel widths from available space.
-        // popoverWidth/Height include the .hp-container padding.
-        const availW = popoverWidth - 2 * CONTAINER_PAD;
-        const availH = popoverHeight - 2 * CONTAINER_PAD;
-        const leftW  = Math.floor(availW * LEFT_FRAC);
-        const rightW = availW - PANEL_GAP - leftW;
-
-        // Left panel
-        const leftWrap = new St.Widget({
-            style_class: 'hp-panel-wrap',
-            width: leftW,
-            height: availH,
-            clip_to_allocation: true,
+        // Icon — use a symbolic that exists in GNOME: activity-symbolic or
+        // view-grid-symbolic; fall back to "heart" if available.
+        this._icon = new St.Icon({
+            icon_name: 'pulse-symbolic',
+            fallback_icon_name: 'view-grid-symbolic',
+            style_class: 'pulse-indicator-icon system-status-icon',
         });
-        this._leftPanel = new LeftPanel(taskManager);
-        this._leftPanel.set_size(leftW, availH);
-        leftWrap.add_child(this._leftPanel);
-        this.add_child(leftWrap);
+        box.add_child(this._icon);
 
-        // Gap
-        const gap = new St.Widget({ width: PANEL_GAP });
-        this.add_child(gap);
-
-        // Right panel
-        const rightWrap = new St.Widget({
-            style_class: 'hp-panel-wrap',
-            width: rightW,
-            height: availH,
-            clip_to_allocation: true,
+        this._label = new St.Label({
+            style_class: 'pulse-indicator-label',
+            y_align: Clutter.ActorAlign.CENTER,
         });
-        this._rightPanel = new RightPanel(taskManager);
-        this._rightPanel.set_size(rightW, availH);
-        rightWrap.add_child(this._rightPanel);
-        this.add_child(rightWrap);
+        box.add_child(this._label);
+
+        this.add_child(box);
+    }
+
+    _buildPopover() {
+        // Compute width: min(POPOVER_WIDTH, 92% of primary monitor)
+        const monitor = Main.layoutManager.primaryMonitor;
+        const maxW = monitor ? Math.floor(monitor.width * 0.92) : POPOVER_WIDTH;
+        const w = Math.min(POPOVER_WIDTH, maxW);
+
+        this._popover = new PulsePopover(this._taskManager, this._extensionPath, w);
+        this.menu.box.add_child(this._popover);
+
+        // Style the menu box so it doesn't add extra padding around our popover
+        this.menu.box.set_style('padding: 0; margin: 0;');
+    }
+
+    _updateLabel() {
+        const { completed, total } = this._taskManager.getTodaySummary();
+        if (total === 0) {
+            this._label.set_text('');
+            this._label.hide();
+        } else {
+            this._label.set_text(`${completed}/${total}`);
+            this._label.show();
+        }
     }
 
     destroy() {
-        if (this._leftPanel) {
-            this._leftPanel.destroy();
-            this._leftPanel = null;
+        if (this._changedId) {
+            this._taskManager.disconnect(this._changedId);
+            this._changedId = null;
         }
-        if (this._rightPanel) {
-            this._rightPanel.destroy();
-            this._rightPanel = null;
+        if (this._rolledId) {
+            this._taskManager.disconnect(this._rolledId);
+            this._rolledId = null;
         }
         super.destroy();
     }
@@ -116,95 +121,48 @@ class HabbitPopLayout extends St.BoxLayout {
 
 // ── Extension ──────────────────────────────────────────────────────────────────
 
-export default class HabbitPopExtension extends Extension {
+export default class PulseExtension extends Extension {
     enable() {
-        // ── 1. Init storage + task manager ──────────────────────────────────
+        // ── Storage + TaskManager ────────────────────────────────────────────
         this._storage = new Storage();
+
+        // Migrate old habbitpop data dir if it exists and new one doesn't yet
+        this._storage.migrateFromHabbitpop();
+
         this._storage.load();
 
-        // Seed fake data if HABBITPOP_SEED env var is set
-        if (GLib.getenv('HABBITPOP_SEED') === '1') {
+        if (GLib.getenv('PULSE_SEED') === '1')
             this._storage.seedFakeHistory();
-        }
 
         this._taskManager = new TaskManager(this._storage);
         this._taskManager.start();
 
-        // ── 2. Locate the dateMenu popover internals ─────────────────────────
-        const dateMenu = Main.panel.statusArea.dateMenu;
-        if (!dateMenu) {
-            console.error('[HabbitPop] dateMenu not found — extension not loaded');
-            return;
-        }
-        this._dateMenu = dateMenu;
+        // ── Indicator ────────────────────────────────────────────────────────
+        this._indicator = new PulseIndicator(
+            this._taskManager,
+            this.path,          // Extension.path provided by the Extension base class
+        );
 
-        // The menu box has one child: a Bin widget
-        // The bin has one child: hbox#calendarArea
-        // We find calendarArea by name or fallback to index
-        this._calendarArea = this._findCalendarArea(dateMenu);
-        if (!this._calendarArea) {
-            console.error('[HabbitPop] calendarArea not found — extension not loaded');
-            return;
-        }
+        // Add beside the date menu (position 0 = rightmost in its group)
+        Main.panel.addToStatusArea('pulse', this._indicator, 1, 'right');
 
-        // ── 3. Hide original children ────────────────────────────────────────
-        this._hiddenChildren = [];
-        const children = this._calendarArea.get_children();
-        for (const child of children) {
-            child.hide();
-            this._hiddenChildren.push(child);
-        }
+        // ── File monitor — live reload when settings/report apps write ────────
+        this._setupFileMonitor();
 
-        // ── 4. Compute popover size ──────────────────────────────────────────
-        const [screenW, screenH] = this._getScreenSize();
-        const maxW = Math.floor(screenW * 0.92);
-        const maxH = Math.floor(screenH * 0.85);
-        const popoverW = Math.min(REF_WIDTH, maxW);
-        const popoverH = Math.min(REF_HEIGHT, maxH);
-
-        // ── 5. Inject our layout ─────────────────────────────────────────────
-        this._habbitLayout = new HabbitPopLayout(this._taskManager, popoverW, popoverH);
-        this._calendarArea.add_child(this._habbitLayout);
-
-        // Force the popover to our desired size
-        this._calendarArea.set_size(popoverW, popoverH);
-
-        // Also apply to the menu box so it doesn't shrink
-        const menuBox = dateMenu.menu.box;
-        menuBox.set_style(`min-width: ${popoverW}px; min-height: ${popoverH}px;`);
-        this._prevMenuStyle = null; // we'll restore by clearing
-
-        console.log('[HabbitPop] Enabled. Popover size:', popoverW, 'x', popoverH);
+        console.log('[PULSE] Enabled.');
     }
 
     disable() {
-        // ── 1. Destroy our widget ─────────────────────────────────────────────
-        if (this._habbitLayout) {
-            this._habbitLayout.destroy();
-            this._habbitLayout = null;
+        // ── File monitor ─────────────────────────────────────────────────────
+        this._teardownFileMonitor();
+
+        // ── Indicator (owns the popover) ──────────────────────────────────────
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
         }
 
-        // ── 2. Restore original children ─────────────────────────────────────
-        if (this._hiddenChildren) {
-            for (const child of this._hiddenChildren) {
-                child.show();
-            }
-            this._hiddenChildren = null;
-        }
-
-        // ── 3. Restore calendar area size ─────────────────────────────────────
-        if (this._calendarArea) {
-            this._calendarArea.set_size(-1, -1); // natural size
-            this._calendarArea = null;
-        }
-
-        // ── 4. Restore menu box style ─────────────────────────────────────────
-        if (this._dateMenu) {
-            this._dateMenu.menu.box.set_style('');
-            this._dateMenu = null;
-        }
-
-        // ── 5. Stop task manager ──────────────────────────────────────────────
+        // ── TaskManager ───────────────────────────────────────────────────────
         if (this._taskManager) {
             this._taskManager.stop();
             this._taskManager = null;
@@ -212,42 +170,58 @@ export default class HabbitPopExtension extends Extension {
 
         this._storage = null;
 
-        console.log('[HabbitPop] Disabled and cleaned up.');
+        console.log('[PULSE] Disabled.');
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── File monitor ──────────────────────────────────────────────────────────
 
-    /**
-     * Locate the #calendarArea hbox inside the dateMenu popover.
-     * The structure is: menu.box → bin → hbox[name="calendarArea"]
-     *
-     * We look for a child named "calendarArea" anywhere in the first two levels.
-     */
-    _findCalendarArea(dateMenu) {
-        const menuBox = dateMenu.menu.box;
-        // Level 1: direct children of menu.box
-        for (const child of menuBox.get_children()) {
-            if (child.name === 'calendarArea') return child;
-            // Level 2: children of the bin
-            for (const grandchild of child.get_children()) {
-                if (grandchild.name === 'calendarArea') return grandchild;
-                // Level 3: just in case
-                for (const ggc of grandchild.get_children()) {
-                    if (ggc.name === 'calendarArea') return ggc;
+    _setupFileMonitor() {
+        const dataPath = this._storage.dataPath;
+        const file = Gio.File.new_for_path(dataPath);
+
+        this._fileMonitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+
+        // Debounce: ignore rapid successive writes (tmp rename causes two events)
+        this._reloadTimer = null;
+        this._fileMonitorId = this._fileMonitor.connect('changed',
+            (_monitor, _file, _otherFile, eventType) => {
+                // CHANGES_DONE_HINT fires after the rename settles
+                if (eventType !== Gio.FileMonitorEvent.CHANGES_DONE_HINT &&
+                    eventType !== Gio.FileMonitorEvent.CREATED) return;
+
+                if (this._reloadTimer) {
+                    GLib.source_remove(this._reloadTimer);
+                    this._reloadTimer = null;
                 }
+                this._reloadTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                    this._reloadTimer = null;
+                    this._onDataFileChanged();
+                    return GLib.SOURCE_REMOVE;
+                });
             }
-        }
-        return null;
+        );
     }
 
-    /**
-     * Get the primary monitor's work area dimensions.
-     * @returns {[number, number]} [width, height]
-     */
-    _getScreenSize() {
-        const monitor = Main.layoutManager.primaryMonitor;
-        if (monitor) return [monitor.width, monitor.height];
-        // Fallback
-        return [1920, 1080];
+    _teardownFileMonitor() {
+        if (this._reloadTimer) {
+            GLib.source_remove(this._reloadTimer);
+            this._reloadTimer = null;
+        }
+        if (this._fileMonitor) {
+            if (this._fileMonitorId) {
+                this._fileMonitor.disconnect(this._fileMonitorId);
+                this._fileMonitorId = null;
+            }
+            this._fileMonitor.cancel();
+            this._fileMonitor = null;
+        }
+    }
+
+    _onDataFileChanged() {
+        if (!this._storage || !this._taskManager) return;
+        console.log('[PULSE] Data file changed — reloading.');
+        this._storage.load();
+        this._storage.rolloverDay(new Date());
+        this._taskManager.emit('tasks-changed');
     }
 }
