@@ -212,7 +212,7 @@ function buildHeader(rd, onMonthChange) {
     const right = new St.BoxLayout({ style_class: 'rpt-selectors', vertical: true });
 
     // Year row
-    const yearRow = new St.BoxLayout({ style_class: 'rpt-sel-row', spacing: 6 });
+    const yearRow = new St.BoxLayout({ style_class: 'rpt-sel-row' });
     yearRow.add_child(new St.Label({ text: 'YEAR', style_class: 'rpt-sel-label' }));
 
     const now = new Date();
@@ -234,7 +234,7 @@ function buildHeader(rd, onMonthChange) {
     right.add_child(yearRow);
 
     // Month row
-    const monthRow = new St.BoxLayout({ style_class: 'rpt-sel-row', spacing: 4 });
+    const monthRow = new St.BoxLayout({ style_class: 'rpt-sel-row' });
     monthRow.add_child(new St.Label({ text: 'MONTH', style_class: 'rpt-sel-label' }));
 
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -384,7 +384,7 @@ function buildWeeklyOverview(rd, W) {
     const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
     container.add_child(sectionHeader('WEEKLY OVERVIEW'));
 
-    const weeksBox = new St.BoxLayout({ x_expand: true, spacing: 8 });
+    const weeksBox = new St.BoxLayout({ x_expand: true });
 
     // Left label column
     const labelCol = new St.BoxLayout({ vertical: true, style_class: 'rpt-week-labels' });
@@ -436,7 +436,7 @@ function buildWeeklyOverview(rd, W) {
         col.add_child(barWrapper);
 
         // Day numbers header
-        const dayHeader = new St.BoxLayout({ spacing: 1 });
+        const dayHeader = new St.BoxLayout({});
         week.forEach(d => {
             dayHeader.add_child(new St.Label({
                 text: String(d.day),
@@ -502,7 +502,7 @@ function buildHabitMatrix(rd) {
     const grid = new St.BoxLayout({ vertical: true, x_expand: true });
 
     // ── Column header row ──────────────────────────────────────────────────
-    const colHeader = new St.BoxLayout({ spacing: 0 });
+    const colHeader = new St.BoxLayout({});
     colHeader.add_child(new St.Widget({ width: LABEL }));          // habit name col
     colHeader.add_child(new St.Label({ text: 'Goal', style_class: 'rpt-matrix-goal-hdr', width: GOAL_W }));
 
@@ -517,7 +517,7 @@ function buildHabitMatrix(rd) {
         wHdr.add_child(wLbl);
 
         // DOW + day number for each day in week
-        const dayRow = new St.BoxLayout({ spacing: 0 });
+        const dayRow = new St.BoxLayout({});
         week.forEach(d => {
             const cell = new St.BoxLayout({ vertical: true, width: CELL, style_class: 'rpt-matrix-day-col' });
             cell.add_child(new St.Label({
@@ -541,7 +541,7 @@ function buildHabitMatrix(rd) {
 
     // ── One row per habit ──────────────────────────────────────────────────
     for (const hs of rd.habitStats) {
-        const row = new St.BoxLayout({ spacing: 0, style_class: 'rpt-matrix-row' });
+        const row = new St.BoxLayout({ style_class: 'rpt-matrix-row' });
 
         // Habit name
         const nameLbl = new St.Label({
@@ -562,7 +562,7 @@ function buildHabitMatrix(rd) {
 
         // Cells grouped by week
         rd.weeks.forEach(week => {
-            const weekCells = new St.BoxLayout({ spacing: 0 });
+            const weekCells = new St.BoxLayout({});
             week.forEach(d => {
                 const status = rd.cellCompleted(hs.task.id, d.day);
                 let cls;
@@ -602,7 +602,7 @@ function buildTop10(rd) {
     }
 
     rd.top10.forEach((hs, i) => {
-        const row = new St.BoxLayout({ x_expand: true, style_class: 'rpt-top-row', spacing: 8 });
+        const row = new St.BoxLayout({ x_expand: true, style_class: 'rpt-top-row' });
         row.add_child(new St.Label({
             text: `${i + 1}`,
             style_class: 'rpt-top-rank',
@@ -642,7 +642,7 @@ function buildOverallProgress(rd, W) {
             style_class: 'rpt-overall-row',
         });
 
-        const top = new St.BoxLayout({ x_expand: true, spacing: 8 });
+        const top = new St.BoxLayout({ x_expand: true });
         const name = new St.Label({ text: hs.task.title, style_class: 'rpt-overall-name', x_expand: true });
         name.clutter_text.ellipsize = 3;
         top.add_child(name);
@@ -751,7 +751,7 @@ class ReportDashboard extends St.BoxLayout {
         inner.add_child(buildHeader(rd, onMonthChange));
 
         // ── 2. Trend + Donut ─────────────────────────────────────────────────
-        const trendRow = new St.BoxLayout({ x_expand: true, spacing: 12, style_class: 'rpt-trend-row' });
+        const trendRow = new St.BoxLayout({ x_expand: true, style_class: 'rpt-trend-row' });
         const donutSz  = 130;
         const chartW   = this._width - donutSz - 12 - 32; // 32 = inner padding
         trendRow.add_child(buildTrendChart(rd, Math.max(chartW, 160)));
@@ -762,7 +762,7 @@ class ReportDashboard extends St.BoxLayout {
         inner.add_child(buildWeeklyOverview(rd, this._width - 32));
 
         // ── 4 + 5. Two-column: habit matrix (left) + top 10 (right) ─────────
-        const midRow = new St.BoxLayout({ x_expand: true, spacing: 12, style_class: 'rpt-mid-row' });
+        const midRow = new St.BoxLayout({ x_expand: true, style_class: 'rpt-mid-row' });
         const matrixW = Math.floor((this._width - 32 - 12) * 0.68);
         const top10W  = this._width - 32 - 12 - matrixW;
 
