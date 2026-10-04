@@ -35,6 +35,7 @@ import St from 'gi://St';
 
 import { TaskState } from './taskManager.js';
 import { Heatmap } from './heatmap.js';
+import { ReportDashboard } from './reportView.js';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -502,14 +503,15 @@ class SettingsView extends St.BoxLayout {
     }
 });
 
-// ── ReportView (placeholder) ──────────────────────────────────────────────────
+// ── ReportView ────────────────────────────────────────────────────────────────
 
 const ReportView = GObject.registerClass(
 class ReportView extends St.BoxLayout {
-    _init(taskManager, onBack) {
+    _init(taskManager, width, onBack) {
         super._init({ style_class: 'pulse-view', vertical: true, x_expand: true, y_expand: true });
 
         this._taskManager = taskManager;
+        this._width = width;
 
         // Back button row
         const topBar = new St.BoxLayout({ style_class: 'pulse-view-topbar', x_expand: true });
@@ -535,43 +537,8 @@ class ReportView extends St.BoxLayout {
 
         this.add_child(topBar);
 
-        // ── Mount point for the report dashboard ──────────────────────────────
-        // The full report spec will be implemented here.
-        // buildReportView() is called to construct and return the dashboard widget.
-        this._mount = new St.BoxLayout({
-            style_class: 'pulse-report-mount',
-            vertical: true,
-            x_expand: true,
-            y_expand: true,
-        });
-        this.add_child(this._mount);
-        this._mount.add_child(this.buildReportView());
-    }
-
-    /**
-     * Report dashboard mount point.
-     * Returns an St.BoxLayout to be populated with the full report UI.
-     * Replace the placeholder content below with the actual dashboard implementation.
-     */
-    buildReportView() {
-        const container = new St.BoxLayout({
-            vertical: true,
-            x_expand: true,
-            y_expand: true,
-            style_class: 'pulse-report-container',
-        });
-
-        const placeholder = new St.Label({
-            text: 'Report dashboard coming soon.',
-            style_class: 'pulse-report-placeholder',
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
-            x_expand: true,
-            y_expand: true,
-        });
-        container.add_child(placeholder);
-
-        return container;
+        // Dashboard fills the rest
+        this.add_child(new ReportDashboard(this._taskManager._storage, this._width));
     }
 });
 
@@ -939,7 +906,7 @@ class PulsePopover extends St.BoxLayout {
     }
 
     _showReportView() {
-        const view = new ReportView(this._taskManager, () => this._switchView('main'));
+        const view = new ReportView(this._taskManager, this._width, () => this._switchView('main'));
         view.x_expand = true;
         view.y_expand = true;
         this._body.add_child(view);

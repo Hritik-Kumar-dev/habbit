@@ -859,3 +859,335 @@
     padding: 4px 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REPORT DASHBOARD — rpt-* classes
+═══════════════════════════════════════════════════════════════════════════ */
+
+.rpt-dashboard {
+    padding: 0;
+}
+
+.rpt-inner {
+    padding: 12px;
+    spacing: 12px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.rpt-header-row {
+    padding-bottom: 10px;
+    border-bottom: 1px solid #2A2E38;
+    spacing: 8px;
+}
+
+.rpt-header-left {
+    spacing: 2px;
+    x_expand: true;
+}
+
+.rpt-title-big {
+    font-size: 16px;
+    font-weight: bold;
+    color: #4B9EFF;
+    letter-spacing: 2px;
+}
+
+.rpt-title-month {
+    font-size: 12px;
+    color: #A0A4AD;
+}
+
+/* Year/month selector chips */
+.rpt-selectors {
+    spacing: 6px;
+}
+
+.rpt-sel-row {
+    spacing: 4px;
+}
+
+.rpt-sel-label {
+    font-size: 9px;
+    color: #5A5E68;
+    min-width: 40px;
+    y-align: center;
+}
+
+.rpt-sel-chip {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #5A5E68;
+    background-color: transparent;
+    border: 1px solid #2A2E38;
+}
+
+.rpt-sel-chip:hover {
+    color: #F2F2F2;
+    border-color: #4B9EFF;
+}
+
+.rpt-sel-chip-on {
+    color: #4B9EFF;
+    background-color: rgba(75, 158, 255, 0.12);
+    border-color: rgba(75, 158, 255, 0.4);
+}
+
+/* ── Trend row ───────────────────────────────────────────────────────────── */
+
+.rpt-trend-row {
+    spacing: 12px;
+}
+
+/* ── Section headers ─────────────────────────────────────────────────────── */
+
+.rpt-section {
+    spacing: 6px;
+    padding-top: 4px;
+}
+
+.rpt-section-header {
+    font-size: 10px;
+    font-weight: bold;
+    color: #A0A4AD;
+    letter-spacing: 1px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #2A2E38;
+}
+
+/* ── Weekly overview ─────────────────────────────────────────────────────── */
+
+.rpt-week-labels {
+    spacing: 2px;
+    min-width: 68px;
+    padding-top: 18px;
+}
+
+.rpt-week-label-title {
+    font-size: 1px;
+    color: transparent;
+    height: 70px;
+}
+
+.rpt-row-label {
+    font-size: 9px;
+    color: #5A5E68;
+    padding: 1px 0;
+}
+
+.rpt-row-label-prog {
+    padding-top: 3px;
+}
+
+.rpt-week-col {
+    spacing: 2px;
+    padding: 0 2px;
+}
+
+.rpt-week-num {
+    font-size: 9px;
+    font-weight: bold;
+    color: #4B9EFF;
+    text-align: center;
+}
+
+.rpt-day-num {
+    font-size: 9px;
+    color: #5A5E68;
+    text-align: center;
+}
+
+.rpt-stat-val {
+    font-size: 10px;
+    color: #A0A4AD;
+    text-align: center;
+}
+
+.rpt-stat-done {
+    color: #4B9EFF;
+}
+
+.rpt-stat-left {
+    color: #5A5E68;
+}
+
+.rpt-prog-box {
+    spacing: 2px;
+    padding-top: 2px;
+}
+
+.rpt-prog-frac {
+    font-size: 9px;
+    color: #A0A4AD;
+}
+
+.rpt-prog-bar-bg {
+    background-color: #20232A;
+    border-radius: 2px;
+}
+
+.rpt-prog-bar-fg {
+    background-color: #4B9EFF;
+    border-radius: 2px;
+}
+
+/* ── Habit matrix ────────────────────────────────────────────────────────── */
+
+.rpt-mid-row {
+    spacing: 12px;
+}
+
+.rpt-matrix-week-hdr {
+    spacing: 0px;
+}
+
+.rpt-matrix-week-label {
+    font-size: 9px;
+    font-weight: bold;
+    color: #4B9EFF;
+    text-align: center;
+    background-color: rgba(75, 158, 255, 0.08);
+    border-radius: 3px;
+    padding: 1px 0;
+}
+
+.rpt-matrix-goal-hdr {
+    font-size: 9px;
+    color: #5A5E68;
+    text-align: center;
+}
+
+.rpt-matrix-day-col {
+    spacing: 0px;
+}
+
+.rpt-matrix-dow {
+    font-size: 8px;
+    color: #5A5E68;
+    text-align: center;
+}
+
+.rpt-matrix-daynum {
+    font-size: 8px;
+    color: #A0A4AD;
+    text-align: center;
+}
+
+.rpt-matrix-row {
+    spacing: 0px;
+    padding: 1px 0;
+}
+
+.rpt-matrix-name {
+    font-size: 11px;
+    color: #F2F2F2;
+    padding: 1px 4px 1px 0;
+}
+
+.rpt-matrix-goal {
+    font-size: 10px;
+    color: #5A5E68;
+    text-align: center;
+    padding: 0 2px;
+}
+
+/* Habit matrix cells */
+.rpt-cell {
+    border-radius: 2px;
+    margin: 1px;
+}
+
+.rpt-cell-done {
+    background-color: #4B9EFF;
+    border: 1px solid rgba(75, 158, 255, 0.6);
+}
+
+.rpt-cell-empty {
+    background-color: transparent;
+    border: 1px solid #2A2E38;
+}
+
+.rpt-cell-na {
+    background-color: transparent;
+    border: 1px solid transparent;
+    opacity: 0;
+}
+
+/* ── Top 10 ──────────────────────────────────────────────────────────────── */
+
+.rpt-top-row {
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(42, 46, 56, 0.5);
+    spacing: 6px;
+}
+
+.rpt-top-rank {
+    font-size: 11px;
+    color: #5A5E68;
+    min-width: 18px;
+}
+
+.rpt-top-name {
+    font-size: 11px;
+    color: #F2F2F2;
+}
+
+.rpt-top-count {
+    font-size: 11px;
+    color: #4B9EFF;
+    min-width: 24px;
+    text-align: right;
+}
+
+.rpt-top-pct {
+    font-size: 10px;
+    color: #A0A4AD;
+    min-width: 32px;
+    text-align: right;
+}
+
+/* ── Overall progress ────────────────────────────────────────────────────── */
+
+.rpt-overall-row {
+    spacing: 3px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(42, 46, 56, 0.5);
+}
+
+.rpt-overall-name {
+    font-size: 12px;
+    color: #F2F2F2;
+}
+
+.rpt-overall-frac {
+    font-size: 11px;
+    color: #A0A4AD;
+}
+
+.rpt-overall-pct {
+    font-size: 11px;
+    font-weight: bold;
+    color: #4B9EFF;
+    min-width: 36px;
+    text-align: right;
+}
+
+.rpt-overall-bar-bg {
+    background-color: #20232A;
+    border-radius: 2px;
+}
+
+.rpt-overall-bar-fg {
+    background-color: rgba(75, 158, 255, 0.75);
+    border-radius: 2px;
+}
+
+/* ── Empty / misc ────────────────────────────────────────────────────────── */
+
+.rpt-empty {
+    font-size: 12px;
+    color: #5A5E68;
+    padding: 16px;
+    text-align: center;
+}
