@@ -1,18 +1,18 @@
 /**
- * storage.js — HabbitPop data persistence layer
+ * storage.js — PULSE data persistence layer
  *
- * Schema
- * ------
- * data.json:
+ * Schema (version 2)
+ * ------------------
  * {
- *   version: 1,
+ *   version: 2,
  *   tasks: [
  *     {
- *       id: string,          // UUID-like "t_<timestamp>_<random>"
+ *       id: string,          // "t_<timestamp>_<random>"
  *       title: string,
- *       time: string,        // "HH:MM" 24h
- *       type: "todo"|"habit",
- *       repeat: "none"|"daily"|{weekdays: number[]}, // weekdays: 0=Sun..6=Sat
+ *       from: string,        // "HH:MM" 24h start time
+ *       to: string,          // "HH:MM" 24h end time (must be > from)
+ *       type: "habit",
+ *       repeat: "none"|"daily"|{weekdays: number[]},
  *       createdAt: string    // ISO date string
  *     }
  *   ],
@@ -23,40 +23,38 @@
  *         {
  *           taskId: string,
  *           title: string,
- *           time: string,
+ *           from: string,
+ *           to: string,
  *           completed: boolean,
  *           completedAt: string|null
  *         }
  *       ],
- *       completionPct: number   // 0-100, cached
+ *       completionPct: number
  *     }
  *   }
  * }
  *
- * Atomic writes: write to .tmp file then rename (GLib.rename).
- * Corrupt file: back up as data.json.bak.<timestamp> and start fresh.
+ * Migration from v1 (habbitpop):
+ *   • Copies ~/.local/share/habbitpop@hritikdev/data.json → pulse@hritikdev/
+ *   • Sets time → from, derives to = from + 30 min
+ *   • Bumps version to 2
+ *   • Leaves old dir intact as a backup
+ *
+ * Atomic writes: write to .tmp then GLib.rename.
+ * Corrupt file: back up as data.json.bak.<ts> and start fresh.
  */
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
-const DATA_VERSION = 1;
+const DATA_VERSION = 2;
+const DATA_DIR_NAME = 'pulse@hritikdev';
+const OLD_DIR_NAME  = 'habbitpop@hritikdev';
 
-/**
- * Generate a simple unique ID.
- * @returns {string}
- */
 function _genId() {
-    const ts = Date.now();
-    const rand = Math.floor(Math.random() * 1000000);
-    return `t_${ts}_${rand}`;
+    return `t_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
 }
 
-/**
- * Format a Date as "YYYY-MM-DD".
- * @param {Date} date
- * @returns {string}
- */
 function _dateKey(date) {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -64,32 +62,78 @@ function _dateKey(date) {
     return `${y}-${m}-${d}`;
 }
 
+/** Add N minutes to "HH:MM", returns "HH:MM". */
+function _addMinutes(hhmm, mins) {
+    const [h, m] = hhmm.split(':').map(Number);
+    const total = h * 60 + m + mins;
+    const nh = Math.min(Math.floor(total / 60), 23);
+    const nm = total % 60;
+    return `${String(nh).padStart(2,'0')}:${String(nm).padStart(2,'0')}`;
+}
+
 export class Storage {
     constructor() {
-        // ~/.local/share/habbitpop@hritikdev/
-        const dataDir = GLib.build_filenamev([
-            GLib.get_user_data_dir(),
-            'habbitpop@hritikdev',
-        ]);
-        this._dir = dataDir;
-        this._dataPath = GLib.build_filenamev([dataDir, 'data.json']);
-        this._data = null;
+        const base = GLib.get_user_data_dir();
+        this._dir      = GLib.build_filenamev([base, DATA_DIR_NAME]);
+        this.dataPath  = GLib.build_filenamev([this._dir, 'data.json']); // public for FileMonitor
+        this._data     = null;
     }
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
+    // ── Migration from old habbitpop dir ──────────────────────────────────────
 
     /**
-     * Load data from disk. Creates fresh data if file missing or corrupt.
-     * Must be called once before using any other method.
+     * If the old habbitpop data dir exists and the new pulse dir doesn't,
+     * copy and migrate the data file. Leaves old dir intact as backup.
      */
-    load() {
-        // Ensure directory exists
-        const dir = Gio.File.new_for_path(this._dir);
-        if (!dir.query_exists(null)) {
-            dir.make_directory_with_parents(null);
-        }
+    migrateFromHabbitpop() {
+        const base = GLib.get_user_data_dir();
+        const oldDir  = GLib.build_filenamev([base, OLD_DIR_NAME]);
+        const oldFile = GLib.build_filenamev([oldDir, 'data.json']);
+        const newDir  = this._dir;
+        const newFile = this.dataPath;
 
-        const file = Gio.File.new_for_path(this._dataPath);
+        const oldExists = Gio.File.new_for_path(oldFile).query_exists(null);
+        const newExists = Gio.File.new_for_path(newFile).query_exists(null);
+
+        if (!oldExists || newExists) return; // nothing to do
+
+        console.log('[PULSE] Migrating data from habbitpop@hritikdev → pulse@hritikdev');
+
+        try {
+            // Ensure new dir exists
+            const newDirFile = Gio.File.new_for_path(newDir);
+            if (!newDirFile.query_exists(null))
+                newDirFile.make_directory_with_parents(null);
+
+            // Load old data
+            const [, bytes] = Gio.File.new_for_path(oldFile).load_contents(null);
+            const old = JSON.parse(new TextDecoder().decode(bytes));
+
+            // Migrate
+            const migrated = this._migrateV1toV2(old);
+
+            // Write to new location atomically
+            const tmp = `${newFile}.tmp`;
+            const text = JSON.stringify(migrated, null, 2);
+            const out = Gio.File.new_for_path(tmp).replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            out.write_all(new TextEncoder().encode(text), null);
+            out.close(null);
+            GLib.rename(tmp, newFile);
+
+            console.log('[PULSE] Migration complete. Old data preserved at', oldDir);
+        } catch (e) {
+            console.error('[PULSE] Migration failed:', e.message);
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    load() {
+        const dir = Gio.File.new_for_path(this._dir);
+        if (!dir.query_exists(null))
+            dir.make_directory_with_parents(null);
+
+        const file = Gio.File.new_for_path(this.dataPath);
         if (!file.query_exists(null)) {
             this._data = this._emptyData();
             return;
@@ -100,64 +144,39 @@ export class Storage {
             const text = new TextDecoder().decode(contents);
             const parsed = JSON.parse(text);
 
-            // Basic schema validation
-            if (
-                typeof parsed !== 'object' ||
-                !Array.isArray(parsed.tasks) ||
-                typeof parsed.days !== 'object'
-            ) {
+            if (typeof parsed !== 'object' || !Array.isArray(parsed.tasks) || typeof parsed.days !== 'object')
                 throw new Error('Invalid schema');
-            }
 
-            this._data = parsed;
+            // Auto-migrate v1 on load (covers edge cases where migration ran but version wasn't bumped)
+            this._data = parsed.version < 2 ? this._migrateV1toV2(parsed) : parsed;
         } catch (e) {
-            // Corrupt or invalid — back up and start fresh
             this._backupCorrupt();
             this._data = this._emptyData();
         }
     }
 
-    /**
-     * Persist data to disk atomically.
-     */
     save() {
         if (!this._data) return;
-
-        const tmpPath = `${this._dataPath}.tmp`;
-        const text = JSON.stringify(this._data, null, 2);
-        const bytes = new TextEncoder().encode(text);
-
-        const tmpFile = Gio.File.new_for_path(tmpPath);
-        const outStream = tmpFile.replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
-        outStream.write_all(bytes, null);
-        outStream.close(null);
-
-        // Atomic rename
-        GLib.rename(tmpPath, this._dataPath);
+        const tmp = `${this.dataPath}.tmp`;
+        const bytes = new TextEncoder().encode(JSON.stringify(this._data, null, 2));
+        const out = Gio.File.new_for_path(tmp).replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        out.write_all(bytes, null);
+        out.close(null);
+        GLib.rename(tmp, this.dataPath);
     }
 
-    // ── Task definitions (the "template" tasks) ────────────────────────────────
+    // ── Task definitions ──────────────────────────────────────────────────────
 
-    /**
-     * Return all task definitions.
-     * @returns {object[]}
-     */
-    getTasks() {
-        return this._data.tasks;
-    }
+    getTasks() { return this._data.tasks; }
 
-    /**
-     * Add a new task definition.
-     * @param {object} taskDef  { title, time, type, repeat }
-     * @returns {object} the created task with id
-     */
-    addTask(taskDef) {
+    addTask(def) {
         const task = {
             id: _genId(),
-            title: taskDef.title,
-            time: taskDef.time || '09:00',
-            type: taskDef.type || 'todo',
-            repeat: taskDef.repeat || 'none',
+            title: def.title,
+            from: def.from || def.time || '09:00',
+            to:   def.to   || _addMinutes(def.from || def.time || '09:00', 30),
+            type: def.type || 'habit',
+            repeat: def.repeat || 'daily',
             createdAt: new Date().toISOString(),
         };
         this._data.tasks.push(task);
@@ -165,25 +184,17 @@ export class Storage {
         return task;
     }
 
-    /**
-     * Update a task definition in-place.
-     * @param {string} id
-     * @param {object} updates
-     * @returns {object|null}
-     */
     updateTask(id, updates) {
         const idx = this._data.tasks.findIndex(t => t.id === id);
         if (idx === -1) return null;
+        // Map legacy 'time' field if callers still send it
+        if (updates.time && !updates.from) updates.from = updates.time;
+        delete updates.time;
         Object.assign(this._data.tasks[idx], updates);
         this.save();
         return this._data.tasks[idx];
     }
 
-    /**
-     * Delete a task definition. Does NOT remove from historical day records
-     * (they are kept for heatmap accuracy).
-     * @param {string} id
-     */
     deleteTask(id) {
         this._data.tasks = this._data.tasks.filter(t => t.id !== id);
         this.save();
@@ -191,127 +202,83 @@ export class Storage {
 
     // ── Day records ───────────────────────────────────────────────────────────
 
-    /**
-     * Get the day record for a given date. Creates it fresh if missing.
-     * @param {Date|string} date  Date object or "YYYY-MM-DD"
-     * @returns {object}
-     */
     getDay(date) {
         const key = typeof date === 'string' ? date : _dateKey(date);
-        if (!this._data.days[key]) {
-            this._data.days[key] = this._freshDayRecord(key);
-        }
+        if (!this._data.days[key])
+            this._data.days[key] = { date: key, tasks: [], completionPct: 0 };
         return this._data.days[key];
     }
 
-    /**
-     * Mark a task entry in today's record as completed or not.
-     * @param {string} taskId
-     * @param {boolean} completed
-     * @param {Date} [forDate=new Date()]
-     */
     setTaskCompleted(taskId, completed, forDate = new Date()) {
         const day = this.getDay(forDate);
         const entry = day.tasks.find(t => t.taskId === taskId);
         if (!entry) return;
-
         entry.completed = completed;
         entry.completedAt = completed ? new Date().toISOString() : null;
-        day.completionPct = this._calcCompletionPct(day);
+        day.completionPct = this._calcPct(day);
         this.save();
     }
 
-    /**
-     * Return all day records (for heatmap).
-     * @returns {object} { "YYYY-MM-DD": dayRecord }
-     */
-    getAllDays() {
-        return this._data.days;
-    }
+    getAllDays() { return this._data.days; }
 
-    /**
-     * Regenerate today's task list from current task definitions.
-     * Called on date rollover or first open of the day.
-     * Preserves existing completion state if tasks were already started.
-     * @param {Date} [forDate=new Date()]
-     */
     rolloverDay(forDate = new Date()) {
         const key = _dateKey(forDate);
         const existing = this._data.days[key];
-
-        // Build a map of existing completion states
         const existingState = {};
         if (existing) {
-            for (const entry of existing.tasks) {
-                existingState[entry.taskId] = {
-                    completed: entry.completed,
-                    completedAt: entry.completedAt,
-                };
-            }
+            for (const e of existing.tasks)
+                existingState[e.taskId] = { completed: e.completed, completedAt: e.completedAt };
         }
 
-        const dayOfWeek = forDate.getDay(); // 0=Sun..6=Sat
-
-        // Build fresh task list from definitions that apply today
+        const dow = forDate.getDay();
         const todayTasks = [];
         for (const task of this._data.tasks) {
-            const applies = this._taskAppliesToDay(task, forDate, dayOfWeek);
-            if (!applies) continue;
-
+            if (!this._taskAppliesToDay(task, forDate, dow)) continue;
             const prev = existingState[task.id] || {};
             todayTasks.push({
                 taskId: task.id,
                 title: task.title,
-                time: task.time,
+                from: task.from,
+                to:   task.to,
                 completed: prev.completed || false,
                 completedAt: prev.completedAt || null,
             });
         }
 
-        // Sort by time
-        todayTasks.sort((a, b) => a.time.localeCompare(b.time));
-
+        todayTasks.sort((a, b) => a.from.localeCompare(b.from));
         this._data.days[key] = {
             date: key,
             tasks: todayTasks,
-            completionPct: this._calcCompletionPct({ tasks: todayTasks }),
+            completionPct: this._calcPct({ tasks: todayTasks }),
         };
         this.save();
     }
 
     // ── Seed / debug ──────────────────────────────────────────────────────────
 
-    /**
-     * Generate ~12 weeks of fake history for heatmap testing.
-     * Called via HABBITPOP_SEED=1 env flag.
-     */
     seedFakeHistory() {
         const today = new Date();
         for (let i = 83; i >= 0; i--) {
             const d = new Date(today);
             d.setDate(d.getDate() - i);
             const key = _dateKey(d);
-
-            // Skip if already has real data
             if (this._data.days[key]?.tasks?.length > 0) continue;
 
             const total = 5 + Math.floor(Math.random() * 5);
-            const done = Math.floor(Math.random() * (total + 1));
+            const done  = Math.floor(Math.random() * (total + 1));
             const tasks = [];
             for (let j = 0; j < total; j++) {
+                const fromH = String(8 + j).padStart(2, '0');
                 tasks.push({
                     taskId: `seed_${j}`,
-                    title: `Task ${j + 1}`,
-                    time: `${String(8 + j).padStart(2, '0')}:00`,
+                    title: `Habit ${j + 1}`,
+                    from: `${fromH}:00`,
+                    to:   `${fromH}:30`,
                     completed: j < done,
                     completedAt: j < done ? d.toISOString() : null,
                 });
             }
-            this._data.days[key] = {
-                date: key,
-                tasks,
-                completionPct: Math.round((done / total) * 100),
-            };
+            this._data.days[key] = { date: key, tasks, completionPct: Math.round((done/total)*100) };
         }
         this.save();
     }
@@ -322,39 +289,49 @@ export class Storage {
         return { version: DATA_VERSION, tasks: [], days: {} };
     }
 
-    _freshDayRecord(key) {
-        return { date: key, tasks: [], completionPct: 0 };
-    }
-
-    _calcCompletionPct(day) {
+    _calcPct(day) {
         if (!day.tasks.length) return 0;
-        const done = day.tasks.filter(t => t.completed).length;
-        return Math.round((done / day.tasks.length) * 100);
+        return Math.round(day.tasks.filter(t => t.completed).length / day.tasks.length * 100);
     }
 
-    _taskAppliesToDay(task, date, dayOfWeek) {
-        if (task.repeat === 'daily') return true;
-        if (task.repeat === 'none') {
-            // Show todos only on their creation day or if created before today
-            // and not yet completed — show them every day until completed.
-            // For simplicity: todos without repeat appear every day.
-            return true;
-        }
-        if (task.repeat && typeof task.repeat === 'object' && Array.isArray(task.repeat.weekdays)) {
+    _taskAppliesToDay(task, _date, dayOfWeek) {
+        if (task.repeat === 'daily' || task.repeat === 'none' || !task.repeat) return true;
+        if (typeof task.repeat === 'object' && Array.isArray(task.repeat.weekdays))
             return task.repeat.weekdays.includes(dayOfWeek);
-        }
         return true;
     }
 
     _backupCorrupt() {
         try {
-            const src = Gio.File.new_for_path(this._dataPath);
-            const ts = Date.now();
-            const bakPath = `${this._dataPath}.bak.${ts}`;
-            const dst = Gio.File.new_for_path(bakPath);
+            const src = Gio.File.new_for_path(this.dataPath);
+            const dst = Gio.File.new_for_path(`${this.dataPath}.bak.${Date.now()}`);
             src.copy(dst, Gio.FileCopyFlags.NONE, null, null);
-        } catch (_) {
-            // Best-effort backup
+        } catch (_) {}
+    }
+
+    /** Migrate v1 schema (single `time` field) to v2 (`from`/`to`). */
+    _migrateV1toV2(old) {
+        console.log('[PULSE] Migrating schema v1 → v2 (time → from/to)');
+        const tasks = (old.tasks || []).map(t => ({
+            ...t,
+            from: t.from || t.time || '09:00',
+            to:   t.to   || _addMinutes(t.from || t.time || '09:00', 30),
+        }));
+        // Remove legacy `time` field
+        tasks.forEach(t => delete t.time);
+
+        const days = {};
+        for (const [key, day] of Object.entries(old.days || {})) {
+            days[key] = {
+                ...day,
+                tasks: (day.tasks || []).map(e => ({
+                    ...e,
+                    from: e.from || e.time || '00:00',
+                    to:   e.to   || _addMinutes(e.from || e.time || '00:00', 30),
+                })),
+            };
+            days[key].tasks.forEach(e => delete e.time);
         }
+        return { version: DATA_VERSION, tasks, days };
     }
 }
