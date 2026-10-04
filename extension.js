@@ -43,7 +43,8 @@ const POPOVER_WIDTH = 480;
 const PulseIndicator = GObject.registerClass(
 class PulseIndicator extends PanelMenu.Button {
     _init(taskManager, extensionPath) {
-        super._init(0.0, 'PULSE');
+        // 0.5 = center-aligned popup (horizontally centered under the button)
+        super._init(0.5, 'PULSE');
 
         this._taskManager = taskManager;
         this._extensionPath = extensionPath;
@@ -140,11 +141,15 @@ export default class PulseExtension extends Extension {
         // ── Indicator ────────────────────────────────────────────────────────
         this._indicator = new PulseIndicator(
             this._taskManager,
-            this.path,          // Extension.path provided by the Extension base class
+            this.path,
         );
 
-        // Add beside the date menu (position 0 = rightmost in its group)
-        Main.panel.addToStatusArea('pulse', this._indicator, 1, 'right');
+        // Place in the CENTER box, immediately after the native date/time button.
+        // dateMenu sits at index 0 of _centerBox children; we insert at index 1
+        // so PULSE appears directly to its right.
+        // Using addToStatusArea with 'center' puts it in the correct box and
+        // registers it so it is properly destroyed on removal.
+        Main.panel.addToStatusArea('pulse', this._indicator, 1, 'center');
 
         // ── File monitor — live reload when settings/report apps write ────────
         this._setupFileMonitor();

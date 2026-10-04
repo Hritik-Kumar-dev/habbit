@@ -1,25 +1,34 @@
 /**
  * src/pulsePopover.js — PULSE main popover widget
  *
- * Single-column, top-to-bottom:
- *   ┌─────────────────────────────────┐
- *   │  PULSE   Sun, Oct 5   7/9 · 78% │  ← header
- *   ├─────────────────────────────────┤
- *   │  ○ Morning exercise  07:00–08:00 │  ← task list (scrollable)
- *   │  ● Read 30 min       08:30–09:00 │
- *   │  …                              │
- *   ├─────────────────────────────────┤
- *   │  [heatmap grid]  Less ░▒▓█ More │  ← compact heatmap
- *   ├─────────────────────────────────┤
- *   │  [⚙ Settings]      [📊 Report]  │  ← bottom bar
- *   └─────────────────────────────────┘
+ * Layout
+ * ──────
+ * ┌────────────────────────────────────────────────────┐
+ * │  PULSE        Sun, Oct 5            7/9 · 78%  ⚙ 📊│  header (full width)
+ * ├───────────────────────────┬────────────────────────┤
+ * │  Task name   07:00–07:30  │  [12-week heatmap]     │
+ * │  Task name   08:00–08:30  │  Less ░▒▓█ More        │
+ * │  …           (scrollable) │  ──────────────────    │
+ * │                           │  7 / 9 completed       │
+ * │  + Add habit              │  78% today             │
+ * └───────────────────────────┴────────────────────────┘
  *
- * Width: passed in from extension.js (default 480px).
- * All panels reuse the existing task list, heatmap, and styling.
+ * Golden ratio: left = 61.8%, right = 38.2%, 12px gap, 16px outer padding.
+ *
+ * View switching (no new window, no subprocess):
+ *   main     → the two-column layout above
+ *   settings → St-widget settings form (add / edit / delete habits)
+ *   report   → placeholder (spec supplied separately)
+ *
+ * Hover flicker fixes applied:
+ *   - Tooltip is ONE persistent St.Label; repositioned/updated in place.
+ *   - Task rows are NOT recreated on hover; only rebuilt when data changes.
+ *   - CSS hover states change only color/opacity, never geometry.
+ *   - No enter/leave signal handlers on rows; :hover pseudo-class in CSS.
+ *   - reactive:true only on cells/buttons that need it.
  */
 
 import Clutter from 'gi://Clutter';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
@@ -27,61 +36,67 @@ import St from 'gi://St';
 import { TaskState } from './taskManager.js';
 import { Heatmap } from './heatmap.js';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Layout constants ──────────────────────────────────────────────────────────
 
-function _dateKey(d) {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
+const PHI          = 1.618033988749895;
+const LEFT_FRAC    = PHI / (1 + PHI);   // ≈ 0.618
+const OUTER_PAD    = 16;                 // px, matches CSS padding
+const COL_GAP      = 12;                 // px gap between columns
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _fmt(hhmm) {
     if (!hhmm) return '';
     const [h, m] = hhmm.split(':').map(Number);
-    const ap = h < 12 ? 'AM' : 'PM';
-    return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${ap}`;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
 function _todayLabel() {
     return new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+function _toMins(hhmm) {
+    if (!hhmm) return 0;
+    const [h, m] = hhmm.split(':').map(Number);
+    return h * 60 + m;
+}
+
 // ── TaskRow ────────────────────────────────────────────────────────────────────
+//
+// Layout: [task name x_expand] [from–to time] [action control]
+//
+// Action control:
+//   unchecked → "Mark as done" pill button (muted, blue on hover)
+//   checked   → green check icon (no label, no circle)
+//
+// Hover flicker fix:
+//   - No enter/leave handlers. :hover in CSS only.
+//   - No geometry changes on hover (border always present, just color changes).
+//   - Context menu inserted as sibling, not recreated on hover.
 
 const TaskRow = GObject.registerClass(
 class TaskRow extends St.BoxLayout {
     _init(entry, onToggle, onEdit, onDelete) {
         super._init({
-            style_class: `hp-task-row hp-task-${entry.state}`,
+            style_class: `pulse-task-row pulse-task-${entry.state}`,
+            // reactive needed for right-click context menu
             reactive: true,
-            track_hover: true,
             x_expand: true,
         });
-        this._entry = entry;
+        this._entry   = entry;
         this._ctxMenu = null;
 
-        // Toggle button
-        const btn = new St.Button({
-            style_class: `hp-check-btn ${entry.completed ? 'hp-check-done' : ''}`,
-            can_focus: true,
-        });
-        btn.child = new St.Icon({
-            icon_name: entry.completed ? 'object-select-symbolic' : 'checkbox-symbolic',
-            icon_size: 14,
-            style_class: 'hp-check-icon',
-        });
-        btn.connect('clicked', () => onToggle(entry.taskId));
-        this.add_child(btn);
-
-        // Name
+        // ── Name ──
         const name = new St.Label({
             text: entry.title,
-            style_class: `hp-task-name ${entry.completed ? 'hp-task-done-text' : ''}`,
+            style_class: entry.completed ? 'pulse-task-name pulse-task-done-text' : 'pulse-task-name',
             y_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
         });
-        name.clutter_text.ellipsize = 3;
+        name.clutter_text.ellipsize = 3; // END
         this.add_child(name);
 
-        // NOW badge
+        // ── NOW badge (current window) ──
         if (entry.state === TaskState.CURRENT) {
             this.add_child(new St.Label({
                 text: 'NOW',
@@ -90,20 +105,44 @@ class TaskRow extends St.BoxLayout {
             }));
         }
 
-        // from – to time (new schema) or legacy time
+        // ── Time range ──
         const timeStr = (entry.from && entry.to)
             ? `${_fmt(entry.from)} – ${_fmt(entry.to)}`
             : _fmt(entry.time || entry.from || '');
-
         if (timeStr) {
             this.add_child(new St.Label({
                 text: timeStr,
-                style_class: 'hp-task-time',
+                style_class: 'pulse-task-time',
                 y_align: Clutter.ActorAlign.CENTER,
             }));
         }
 
-        // Right-click → edit/delete
+        // ── Action: "Mark as done" pill OR green check ──
+        if (entry.completed) {
+            // Green check icon — no button frame
+            const check = new St.Icon({
+                icon_name: 'object-select-symbolic',
+                icon_size: 14,
+                style_class: 'pulse-done-icon',
+                reactive: true,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            // Clicking the check also un-toggles
+            check.connect('button-press-event', () => { onToggle(entry.taskId); return Clutter.EVENT_STOP; });
+            this.add_child(check);
+        } else {
+            // "Mark as done" pill
+            const pill = new St.Button({
+                label: 'Mark as done',
+                style_class: 'pulse-mark-btn',
+                can_focus: true,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            pill.connect('clicked', () => onToggle(entry.taskId));
+            this.add_child(pill);
+        }
+
+        // ── Right-click → edit / delete ──
         this.connect('button-press-event', (_a, event) => {
             if (event.get_button() === 3) {
                 this._showCtxMenu(onEdit, onDelete);
@@ -115,20 +154,29 @@ class TaskRow extends St.BoxLayout {
 
     _showCtxMenu(onEdit, onDelete) {
         if (this._ctxMenu) { this._ctxMenu.destroy(); this._ctxMenu = null; }
-        this._ctxMenu = new St.BoxLayout({ style_class: 'hp-context-menu', vertical: true, reactive: true });
+        this._ctxMenu = new St.BoxLayout({
+            style_class: 'hp-context-menu',
+            vertical: true,
+            reactive: true,
+        });
         const mk = (label, cls, cb) => {
             const b = new St.Button({ label, style_class: cls, x_expand: true });
-            b.connect('clicked', () => { this._ctxMenu?.destroy(); this._ctxMenu = null; cb(); });
+            b.connect('clicked', () => {
+                this._ctxMenu?.destroy();
+                this._ctxMenu = null;
+                cb();
+            });
             return b;
         };
-        this._ctxMenu.add_child(mk('Edit',   'hp-ctx-btn', () => onEdit(this._entry.taskId)));
-        this._ctxMenu.add_child(mk('Delete', 'hp-ctx-btn hp-ctx-btn-delete', () => onDelete(this._entry.taskId)));
+        this._ctxMenu.add_child(mk('Edit',   'hp-ctx-btn',                    () => onEdit(this._entry.taskId)));
+        this._ctxMenu.add_child(mk('Delete', 'hp-ctx-btn hp-ctx-btn-delete',  () => onDelete(this._entry.taskId)));
         const parent = this.get_parent();
-        if (parent) parent.insert_child_at_index(this._ctxMenu, parent.get_children().indexOf(this) + 1);
+        if (parent)
+            parent.insert_child_at_index(this._ctxMenu, parent.get_children().indexOf(this) + 1);
     }
 });
 
-// ── AddHabitForm ───────────────────────────────────────────────────────────────
+// ── AddHabitForm (St widgets, used in settings view) ─────────────────────────
 
 const AddHabitForm = GObject.registerClass(
 class AddHabitForm extends St.BoxLayout {
@@ -136,197 +184,452 @@ class AddHabitForm extends St.BoxLayout {
         super._init({ style_class: 'hp-add-form', vertical: true, x_expand: true });
 
         // Name
+        const nameRow = new St.BoxLayout({ style_class: 'hp-form-row', x_expand: true });
         this._nameEntry = new St.Entry({
             hint_text: 'Habit name…',
             style_class: 'hp-form-input',
-            x_expand: true, can_focus: true,
+            x_expand: true,
+            can_focus: true,
         });
         if (prefill?.title) this._nameEntry.set_text(prefill.title);
+        nameRow.add_child(this._nameEntry);
+        this.add_child(nameRow);
 
-        // From / To time row
+        // From – To row
         const timeRow = new St.BoxLayout({ style_class: 'hp-form-row', x_expand: true });
         this._fromEntry = new St.Entry({
-            hint_text: 'From HH:MM', text: prefill?.from || '09:00',
-            style_class: 'hp-form-input hp-form-time', can_focus: true,
+            hint_text: 'From',
+            text: prefill?.from || '09:00',
+            style_class: 'hp-form-input hp-form-time',
+            can_focus: true,
         });
-        const dash = new St.Label({ text: '–', style_class: 'hp-form-dash', y_align: Clutter.ActorAlign.CENTER });
+        const dash = new St.Label({
+            text: '–',
+            style_class: 'hp-form-dash',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
         this._toEntry = new St.Entry({
-            hint_text: 'To HH:MM', text: prefill?.to || '09:30',
-            style_class: 'hp-form-input hp-form-time', can_focus: true,
+            hint_text: 'To',
+            text: prefill?.to || '09:30',
+            style_class: 'hp-form-input hp-form-time',
+            can_focus: true,
         });
         timeRow.add_child(this._fromEntry);
         timeRow.add_child(dash);
         timeRow.add_child(this._toEntry);
+        this.add_child(timeRow);
 
-        // Repeat cycle button
-        this._repeatOptions = ['daily', 'Mon-Fri', 'Weekends', 'none'];
-        const prefillRepeat = prefill?.repeat;
-        this._repeatIdx = prefillRepeat === 'none' ? 3
-            : (prefillRepeat && typeof prefillRepeat === 'object') ? (
-                JSON.stringify(prefillRepeat.weekdays) === '[1,2,3,4,5]' ? 1 : 2
-            ) : 0;
-        this._repeatBtn = new St.Button({
-            label: this._repeatLabel(),
-            style_class: 'hp-repeat-btn', can_focus: true,
+        // Repeat every day toggle row
+        const repeatRow = new St.BoxLayout({ style_class: 'hp-form-row', x_expand: true });
+        const repeatLbl = new St.Label({
+            text: 'Repeat every day',
+            style_class: 'hp-form-label',
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
         });
-        this._repeatBtn.connect('clicked', () => {
-            this._repeatIdx = (this._repeatIdx + 1) % this._repeatOptions.length;
-            this._repeatBtn.label = this._repeatLabel();
+        this._dailyToggle = new St.Button({
+            style_class: 'pulse-toggle',
+            can_focus: true,
+            toggle_mode: true,
+            y_align: Clutter.ActorAlign.CENTER,
         });
+        const isDaily = !prefill || prefill.repeat === 'daily' || !prefill.repeat;
+        this._dailyToggle.checked = isDaily;
+        this._dailyToggle.style_class = isDaily ? 'pulse-toggle pulse-toggle-on' : 'pulse-toggle';
+        this._dailyToggle.connect('clicked', () => {
+            this._dailyToggle.style_class = this._dailyToggle.checked
+                ? 'pulse-toggle pulse-toggle-on'
+                : 'pulse-toggle';
+            this._updateWeekdayChips();
+        });
+        repeatRow.add_child(repeatLbl);
+        repeatRow.add_child(this._dailyToggle);
+        this.add_child(repeatRow);
+
+        // Weekday chips row (visible when daily is off)
+        const DAYS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+        const prefillDays = prefill?.repeat?.weekdays;
+        this._chipRow = new St.BoxLayout({ style_class: 'pulse-chip-row', x_expand: true });
+        this._chips = DAYS.map((d, i) => {
+            const chip = new St.Button({
+                label: d,
+                style_class: 'pulse-day-chip',
+                toggle_mode: true,
+                can_focus: true,
+            });
+            chip.checked = prefillDays ? prefillDays.includes(i) : true;
+            chip.style_class = chip.checked ? 'pulse-day-chip pulse-day-chip-on' : 'pulse-day-chip';
+            chip.connect('clicked', () => {
+                chip.style_class = chip.checked ? 'pulse-day-chip pulse-day-chip-on' : 'pulse-day-chip';
+            });
+            this._chipRow.add_child(chip);
+            return chip;
+        });
+        this.add_child(this._chipRow);
+        this._updateWeekdayChips();
+
+        // Validation message
+        this._validationLbl = new St.Label({
+            text: '⚠ End time must be after start time',
+            style_class: 'pulse-form-error',
+        });
+        this._validationLbl.hide();
+        this.add_child(this._validationLbl);
 
         // Actions
         const actionRow = new St.BoxLayout({ style_class: 'hp-form-row hp-form-actions', x_expand: true });
-        const submitBtn = new St.Button({ label: prefill ? 'Save' : 'Add', style_class: 'hp-form-submit', can_focus: true });
+        const submitBtn = new St.Button({
+            label: prefill ? 'Save' : 'Add',
+            style_class: 'hp-form-submit',
+            can_focus: true,
+        });
         submitBtn.connect('clicked', () => this._submit(onSubmit));
-        const cancelBtn = new St.Button({ label: 'Cancel', style_class: 'hp-form-cancel', can_focus: true });
+        const cancelBtn = new St.Button({
+            label: 'Cancel',
+            style_class: 'hp-form-cancel',
+            can_focus: true,
+        });
         cancelBtn.connect('clicked', onCancel);
         actionRow.add_child(submitBtn);
         actionRow.add_child(cancelBtn);
-
-        const nameRow = new St.BoxLayout({ style_class: 'hp-form-row', x_expand: true });
-        nameRow.add_child(this._nameEntry);
-
-        this.add_child(nameRow);
-        this.add_child(timeRow);
-        this.add_child(this._repeatBtn);
         this.add_child(actionRow);
 
-        // Enter submits, Escape cancels
+        // Keyboard shortcuts
         this._nameEntry.clutter_text.connect('key-press-event', (_a, ev) => {
             const s = ev.get_key_symbol();
-            if (s === Clutter.KEY_Return || s === Clutter.KEY_KP_Enter) { this._submit(onSubmit); return Clutter.EVENT_STOP; }
-            if (s === Clutter.KEY_Escape) { onCancel(); return Clutter.EVENT_STOP; }
+            if (s === Clutter.KEY_Return || s === Clutter.KEY_KP_Enter) {
+                this._submit(onSubmit);
+                return Clutter.EVENT_STOP;
+            }
+            if (s === Clutter.KEY_Escape) {
+                onCancel();
+                return Clutter.EVENT_STOP;
+            }
             return Clutter.EVENT_PROPAGATE;
         });
 
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => { this._nameEntry.grab_key_focus(); return GLib.SOURCE_REMOVE; });
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            this._nameEntry.grab_key_focus();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
-    _repeatLabel() {
-        const r = this._repeatOptions[this._repeatIdx];
-        return r === 'daily' ? 'Every day' : r === 'Mon-Fri' ? 'Mon – Fri' : r === 'Weekends' ? 'Weekends' : 'No repeat';
+    _updateWeekdayChips() {
+        this._chipRow.visible = !this._dailyToggle.checked;
     }
 
     _repeatValue() {
-        const r = this._repeatOptions[this._repeatIdx];
-        if (r === 'daily') return 'daily';
-        if (r === 'Mon-Fri') return { weekdays: [1,2,3,4,5] };
-        if (r === 'Weekends') return { weekdays: [0,6] };
-        return 'none';
+        if (this._dailyToggle.checked) return 'daily';
+        const sel = this._chips.map((c, i) => c.checked ? i : -1).filter(i => i >= 0);
+        if (sel.length === 0) return 'none';
+        if (sel.length === 7) return 'daily';
+        return { weekdays: sel };
     }
 
     _submit(onSubmit) {
         const title = this._nameEntry.get_text().trim();
         if (!title) return;
-        onSubmit({
-            title,
-            from: this._fromEntry.get_text().trim() || '09:00',
-            to:   this._toEntry.get_text().trim()   || '09:30',
-            type: 'habit',
-            repeat: this._repeatValue(),
-        });
+        const from = this._fromEntry.get_text().trim() || '09:00';
+        const to   = this._toEntry.get_text().trim()   || '09:30';
+        if (_toMins(to) <= _toMins(from)) {
+            this._validationLbl.show();
+            return;
+        }
+        this._validationLbl.hide();
+        onSubmit({ title, from, to, type: 'habit', repeat: this._repeatValue() });
     }
 });
 
-// ── PulsePopover ──────────────────────────────────────────────────────────────
+// ── SettingsView ──────────────────────────────────────────────────────────────
 
-export const PulsePopover = GObject.registerClass(
-class PulsePopover extends St.BoxLayout {
-    _init(taskManager, extensionPath, width) {
-        super._init({
-            style_class: 'pulse-popover',
-            vertical: true,
-            width,
-        });
+const SettingsView = GObject.registerClass(
+class SettingsView extends St.BoxLayout {
+    _init(taskManager, onBack) {
+        super._init({ style_class: 'pulse-view', vertical: true, x_expand: true, y_expand: true });
 
         this._taskManager = taskManager;
-        this._extensionPath = extensionPath;
-        this._width = width;
-        this._showingForm = false;
-        this._editingTaskId = null;
-        this._activeForm = null;
+        this._activeForm  = null;
 
-        this._buildHeader();
-        this._buildTaskList();
-        this._buildHeatmap();
-        this._buildBottomBar();
-
-        this._changedId = taskManager.connect('tasks-changed', () => this._refresh());
-        this._rolledId  = taskManager.connect('day-rolled-over', () => {
-            this._updateHeader();
-            this._refresh();
+        // Back button row
+        const topBar = new St.BoxLayout({ style_class: 'pulse-view-topbar', x_expand: true });
+        const backBtn = new St.Button({
+            label: '← Back',
+            style_class: 'pulse-back-btn',
+            can_focus: true,
         });
-    }
-
-    destroy() {
-        if (this._changedId) { this._taskManager.disconnect(this._changedId); this._changedId = null; }
-        if (this._rolledId)  { this._taskManager.disconnect(this._rolledId);  this._rolledId  = null; }
-        super.destroy();
-    }
-
-    // ── Header ────────────────────────────────────────────────────────────────
-
-    _buildHeader() {
-        this._headerBox = new St.BoxLayout({
-            style_class: 'pulse-header',
-            x_expand: true,
+        backBtn.connect('clicked', () => {
+            this._closeForm();
+            onBack();
         });
+        topBar.add_child(backBtn);
 
-        // Left: PULSE wordmark
-        const wordmark = new St.Label({ text: 'PULSE', style_class: 'pulse-wordmark' });
-        this._headerBox.add_child(wordmark);
-
-        // Middle: today's date
-        this._dateLabel = new St.Label({
-            text: _todayLabel(),
-            style_class: 'pulse-header-date',
+        const title = new St.Label({
+            text: 'Settings',
+            style_class: 'pulse-view-title',
             x_expand: true,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._headerBox.add_child(this._dateLabel);
+        topBar.add_child(title);
 
-        // Right: "7 / 9 · 78%"
-        this._summaryLabel = new St.Label({
-            style_class: 'pulse-header-summary',
-            y_align: Clutter.ActorAlign.CENTER,
+        const addBtn = new St.Button({
+            label: '+',
+            style_class: 'pulse-view-add-btn',
+            can_focus: true,
         });
-        this._headerBox.add_child(this._summaryLabel);
+        addBtn.connect('clicked', () => this._openAddForm());
+        topBar.add_child(addBtn);
 
-        this.add_child(this._headerBox);
-        this._updateHeader();
-    }
+        this.add_child(topBar);
 
-    _updateHeader() {
-        const { completed, total, pct } = this._taskManager.getTodaySummary();
-        this._dateLabel.set_text(_todayLabel());
-        if (total === 0) {
-            this._summaryLabel.set_text('No tasks');
-        } else {
-            this._summaryLabel.set_text(`${completed} / ${total} · ${pct}%`);
-        }
-    }
-
-    // ── Task list ─────────────────────────────────────────────────────────────
-
-    _buildTaskList() {
-        this._taskScroll = new St.ScrollView({
-            style_class: 'pulse-task-scroll',
+        // Habit list in a scrollview
+        this._scroll = new St.ScrollView({
+            style_class: 'pulse-settings-scroll',
             x_expand: true,
+            y_expand: true,
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
             overlay_scrollbars: true,
         });
+        this._listBox = new St.BoxLayout({
+            style_class: 'pulse-settings-list',
+            vertical: true,
+            x_expand: true,
+        });
+        this._scroll.child = this._listBox;
+        this.add_child(this._scroll);
 
+        // Form mount point (below list)
+        this._formMount = new St.BoxLayout({ vertical: true, x_expand: true });
+        this.add_child(this._formMount);
+
+        this._buildList();
+
+        // Refresh when tasks change
+        this._changedId = taskManager.connect('tasks-changed', () => this._buildList());
+    }
+
+    destroy() {
+        if (this._changedId) {
+            this._taskManager.disconnect(this._changedId);
+            this._changedId = null;
+        }
+        super.destroy();
+    }
+
+    _buildList() {
+        this._listBox.destroy_all_children();
+        const tasks = this._taskManager._storage.getTasks();
+
+        if (tasks.length === 0) {
+            const empty = new St.Label({
+                text: 'No habits yet. Tap + to add one.',
+                style_class: 'hp-empty-msg',
+                x_align: Clutter.ActorAlign.CENTER,
+                x_expand: true,
+            });
+            this._listBox.add_child(empty);
+            return;
+        }
+
+        for (const task of tasks) {
+            const row = new St.BoxLayout({
+                style_class: 'pulse-settings-row',
+                x_expand: true,
+                reactive: true,
+            });
+
+            const info = new St.BoxLayout({ vertical: true, x_expand: true });
+            info.add_child(new St.Label({
+                text: task.title,
+                style_class: 'pulse-settings-name',
+            }));
+            info.add_child(new St.Label({
+                text: `${_fmt(task.from)} – ${_fmt(task.to)}  ·  ${this._repeatStr(task.repeat)}`,
+                style_class: 'pulse-settings-sub',
+            }));
+            row.add_child(info);
+
+            const editBtn = new St.Button({ label: '✎', style_class: 'pulse-settings-icon-btn', can_focus: true });
+            editBtn.connect('clicked', () => this._openEditForm(task));
+            row.add_child(editBtn);
+
+            const delBtn = new St.Button({ label: '✕', style_class: 'pulse-settings-icon-btn pulse-settings-del-btn', can_focus: true });
+            delBtn.connect('clicked', () => {
+                this._taskManager.deleteTask(task.id);
+            });
+            row.add_child(delBtn);
+
+            this._listBox.add_child(row);
+        }
+    }
+
+    _repeatStr(repeat) {
+        if (!repeat || repeat === 'daily') return 'Every day';
+        if (repeat === 'none') return 'No repeat';
+        if (typeof repeat === 'object' && repeat.weekdays) {
+            const D = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+            return repeat.weekdays.map(i => D[i]).join(' ');
+        }
+        return String(repeat);
+    }
+
+    _openAddForm() {
+        this._closeForm();
+        this._activeForm = new AddHabitForm(
+            null,
+            def => { this._taskManager.addTask(def); this._closeForm(); },
+            () => this._closeForm(),
+        );
+        this._formMount.add_child(this._activeForm);
+    }
+
+    _openEditForm(task) {
+        this._closeForm();
+        this._activeForm = new AddHabitForm(
+            task,
+            updates => { this._taskManager.updateTask(task.id, updates); this._closeForm(); },
+            () => this._closeForm(),
+        );
+        this._formMount.add_child(this._activeForm);
+    }
+
+    _closeForm() {
+        if (this._activeForm) {
+            this._activeForm.destroy();
+            this._activeForm = null;
+        }
+    }
+});
+
+// ── ReportView (placeholder) ──────────────────────────────────────────────────
+
+const ReportView = GObject.registerClass(
+class ReportView extends St.BoxLayout {
+    _init(taskManager, onBack) {
+        super._init({ style_class: 'pulse-view', vertical: true, x_expand: true, y_expand: true });
+
+        this._taskManager = taskManager;
+
+        // Back button row
+        const topBar = new St.BoxLayout({ style_class: 'pulse-view-topbar', x_expand: true });
+        const backBtn = new St.Button({
+            label: '← Back',
+            style_class: 'pulse-back-btn',
+            can_focus: true,
+        });
+        backBtn.connect('clicked', onBack);
+        topBar.add_child(backBtn);
+
+        const title = new St.Label({
+            text: 'Report',
+            style_class: 'pulse-view-title',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        topBar.add_child(title);
+
+        // Spacer to balance back button
+        topBar.add_child(new St.Widget({ width: 60 }));
+
+        this.add_child(topBar);
+
+        // ── Mount point for the report dashboard ──────────────────────────────
+        // The full report spec will be implemented here.
+        // buildReportView() is called to construct and return the dashboard widget.
+        this._mount = new St.BoxLayout({
+            style_class: 'pulse-report-mount',
+            vertical: true,
+            x_expand: true,
+            y_expand: true,
+        });
+        this.add_child(this._mount);
+        this._mount.add_child(this.buildReportView());
+    }
+
+    /**
+     * Report dashboard mount point.
+     * Returns an St.BoxLayout to be populated with the full report UI.
+     * Replace the placeholder content below with the actual dashboard implementation.
+     */
+    buildReportView() {
+        const container = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            y_expand: true,
+            style_class: 'pulse-report-container',
+        });
+
+        const placeholder = new St.Label({
+            text: 'Report dashboard coming soon.',
+            style_class: 'pulse-report-placeholder',
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: true,
+            y_expand: true,
+        });
+        container.add_child(placeholder);
+
+        return container;
+    }
+});
+
+// ── MainView (two-column: tasks left, heatmap+summary right) ──────────────────
+//
+// Hover flicker fix for heatmap:
+//   - this._tooltip is ONE persistent St.Label created once in _build().
+//   - On cell hover: set text + position + show. On leave: hide (not destroy).
+//   - Cells never cause list rebuild or heatmap rebuild.
+
+const MainView = GObject.registerClass(
+class MainView extends St.BoxLayout {
+    _init(taskManager, popoverWidth) {
+        super._init({ style_class: 'pulse-main-view', x_expand: true, y_expand: true });
+
+        this._taskManager = taskManager;
+        this._showingForm = false;
+        this._editingTaskId = null;
+        this._activeForm = null;
+
+        // Compute column widths
+        const inner  = popoverWidth - 2 * OUTER_PAD;
+        const leftW  = Math.floor(inner * LEFT_FRAC) - Math.floor(COL_GAP / 2);
+        const rightW = inner - leftW - COL_GAP;
+
+        this._leftW  = leftW;
+        this._rightW = rightW;
+
+        this._buildLeft(leftW);
+        this.add_child(new St.Widget({ width: COL_GAP }));
+        this._buildRight(rightW);
+    }
+
+    // ── Left column: task list + add button ───────────────────────────────────
+
+    _buildLeft(w) {
+        this._leftCol = new St.BoxLayout({
+            style_class: 'pulse-left-col',
+            vertical: true,
+            width: w,
+        });
+
+        this._taskScroll = new St.ScrollView({
+            style_class: 'pulse-task-scroll',
+            x_expand: true,
+            y_expand: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+        });
         this._taskListBox = new St.BoxLayout({
             style_class: 'hp-task-list',
             vertical: true,
             x_expand: true,
         });
         this._taskScroll.child = this._taskListBox;
-        this.add_child(this._taskScroll);
+        this._leftCol.add_child(this._taskScroll);
 
-        // "+ Add habit" button sits below scroll but above heatmap
         this._addBtn = new St.Button({
             label: '+ Add habit',
             style_class: 'hp-add-btn',
@@ -334,10 +637,93 @@ class PulsePopover extends St.BoxLayout {
             can_focus: true,
         });
         this._addBtn.connect('clicked', () => this._openAddForm());
-        this.add_child(this._addBtn);
+        this._leftCol.add_child(this._addBtn);
 
+        this.add_child(this._leftCol);
         this._renderTasks();
     }
+
+    // ── Right column: heatmap + legend + summary ──────────────────────────────
+
+    _buildRight(w) {
+        this._rightCol = new St.BoxLayout({
+            style_class: 'pulse-right-col',
+            vertical: true,
+            width: w,
+        });
+
+        this._buildHeatmap(w);
+        this._buildSummary();
+
+        this.add_child(this._rightCol);
+    }
+
+    _buildHeatmap(w) {
+        const data = this._taskManager.getHeatmapData(84);
+        this._heatmap = new Heatmap(data, /* stableTooltip= */ true);
+
+        const holder = new St.BoxLayout({ style_class: 'hp-heatmap-holder' });
+        holder.add_child(this._heatmap);
+
+        const scroll = new St.ScrollView({
+            style_class: 'pulse-heatmap-scroll',
+            hscrollbar_policy: St.PolicyType.AUTOMATIC,
+            vscrollbar_policy: St.PolicyType.NEVER,
+            overlay_scrollbars: true,
+            x_expand: true,
+        });
+        scroll.child = holder;
+        this._rightCol.add_child(scroll);
+
+        // Legend
+        const legend = new St.BoxLayout({
+            style_class: 'hp-legend',
+            x_align: Clutter.ActorAlign.END,
+            x_expand: true,
+        });
+        legend.add_child(new St.Label({ text: 'Less', style_class: 'hp-legend-label' }));
+        for (let i = 0; i <= 4; i++)
+            legend.add_child(new St.Widget({ style_class: `hp-legend-cell hp-cell-l${i}`, width: 11, height: 11 }));
+        legend.add_child(new St.Label({ text: 'More', style_class: 'hp-legend-label' }));
+        this._rightCol.add_child(legend);
+    }
+
+    _buildSummary() {
+        this._summaryCard = new St.BoxLayout({
+            style_class: 'pulse-summary-card',
+            vertical: true,
+            x_expand: true,
+        });
+        this._completionLbl = new St.Label({ style_class: 'pulse-summary-completion' });
+        this._pctLbl        = new St.Label({ style_class: 'pulse-summary-pct' });
+        this._encourageLbl  = new St.Label({ style_class: 'pulse-summary-encourage' });
+        this._encourageLbl.clutter_text.line_wrap = true;
+        this._summaryCard.add_child(this._completionLbl);
+        this._summaryCard.add_child(this._pctLbl);
+        this._summaryCard.add_child(this._encourageLbl);
+        this._rightCol.add_child(this._summaryCard);
+        this._updateSummary();
+    }
+
+    _updateSummary() {
+        const { completed, total, pct } = this._taskManager.getTodaySummary();
+        if (total === 0) {
+            this._completionLbl.set_text('No habits today');
+            this._pctLbl.set_text('');
+            this._encourageLbl.set_text('Add a habit to get started.');
+        } else {
+            this._completionLbl.set_text(`${completed} / ${total} completed`);
+            this._pctLbl.set_text(`${pct}%`);
+            const msg = pct === 0   ? 'Start small. Every check counts.'
+                      : pct <= 33  ? "Getting started. Keep going!"
+                      : pct <= 66  ? "Halfway there. Great momentum!"
+                      : pct <= 99  ? "Almost done. Finish strong!"
+                      : "Perfect day! 🎉";
+            this._encourageLbl.set_text(msg);
+        }
+    }
+
+    // ── Task rendering (data-driven, never on hover) ──────────────────────────
 
     _renderTasks() {
         this._taskListBox.destroy_all_children();
@@ -345,7 +731,7 @@ class PulsePopover extends St.BoxLayout {
 
         if (tasks.length === 0) {
             const empty = new St.Label({
-                text: 'Nothing planned. Add a habit to get started.',
+                text: 'Nothing planned.\nAdd a habit to get started.',
                 style_class: 'hp-empty-msg',
                 x_expand: true,
                 x_align: Clutter.ActorAlign.CENTER,
@@ -365,84 +751,15 @@ class PulsePopover extends St.BoxLayout {
         }
     }
 
-    // ── Heatmap ───────────────────────────────────────────────────────────────
+    // ── Refresh (called only when data changes, not on hover) ─────────────────
 
-    _buildHeatmap() {
-        const data = this._taskManager.getHeatmapData(84);
-        this._heatmap = new Heatmap(data);
-
-        const holder = new St.BoxLayout({ style_class: 'hp-heatmap-holder' });
-        holder.add_child(this._heatmap);
-
-        const scroll = new St.ScrollView({
-            style_class: 'pulse-heatmap-scroll',
-            hscrollbar_policy: St.PolicyType.AUTOMATIC,
-            vscrollbar_policy: St.PolicyType.NEVER,
-            overlay_scrollbars: true,
-            x_expand: true,
-        });
-        scroll.child = holder;
-        this.add_child(scroll);
-
-        // Legend row
-        const legend = new St.BoxLayout({
-            style_class: 'hp-legend',
-            x_align: Clutter.ActorAlign.END,
-            x_expand: true,
-        });
-        legend.add_child(new St.Label({ text: 'Less', style_class: 'hp-legend-label' }));
-        for (let i = 0; i <= 4; i++) {
-            legend.add_child(new St.Widget({ style_class: `hp-legend-cell hp-cell-l${i}`, width: 11, height: 11 }));
-        }
-        legend.add_child(new St.Label({ text: 'More', style_class: 'hp-legend-label' }));
-        this.add_child(legend);
+    refresh() {
+        this._updateSummary();
+        this._renderTasks();
+        this._heatmap.update(this._taskManager.getHeatmapData(84));
     }
 
-    // ── Bottom bar ────────────────────────────────────────────────────────────
-
-    _buildBottomBar() {
-        const bar = new St.BoxLayout({
-            style_class: 'pulse-bottom-bar',
-            x_expand: true,
-        });
-
-        const settingsBtn = new St.Button({
-            label: '⚙  Settings',
-            style_class: 'pulse-bar-btn',
-            x_expand: true,
-            can_focus: true,
-        });
-        settingsBtn.connect('clicked', () => this._launchApp('settings'));
-
-        const reportBtn = new St.Button({
-            label: '📊  Report',
-            style_class: 'pulse-bar-btn pulse-bar-btn-accent',
-            x_expand: true,
-            can_focus: true,
-        });
-        reportBtn.connect('clicked', () => this._launchApp('report'));
-
-        bar.add_child(settingsBtn);
-        bar.add_child(reportBtn);
-        this.add_child(bar);
-    }
-
-    // ── Launch external apps ──────────────────────────────────────────────────
-
-    _launchApp(appName) {
-        const appPath = GLib.build_filenamev([this._extensionPath, 'apps', `${appName}.js`]);
-        try {
-            const proc = Gio.Subprocess.new(
-                ['gjs', '-m', appPath],
-                Gio.SubprocessFlags.NONE,
-            );
-            proc.wait_async(null, null);
-        } catch (e) {
-            console.error(`[PULSE] Failed to launch ${appName}:`, e.message);
-        }
-    }
-
-    // ── Forms ─────────────────────────────────────────────────────────────────
+    // ── Add / Edit forms ──────────────────────────────────────────────────────
 
     _openAddForm() {
         if (this._showingForm) return;
@@ -453,9 +770,8 @@ class PulsePopover extends St.BoxLayout {
             def => { this._taskManager.addTask(def); this._closeForm(); },
             () => this._closeForm(),
         );
-        // Insert above add button
-        const addBtnIdx = this.get_children().indexOf(this._addBtn);
-        this.insert_child_at_index(this._activeForm, addBtnIdx);
+        const idx = this._leftCol.get_children().indexOf(this._addBtn);
+        this._leftCol.insert_child_at_index(this._activeForm, idx);
         this._addBtn.hide();
     }
 
@@ -463,34 +779,169 @@ class PulsePopover extends St.BoxLayout {
         if (this._activeForm) { this._activeForm.destroy(); this._activeForm = null; }
         this._showingForm = true;
         this._editingTaskId = taskId;
-
-        const tasks = this._taskManager._storage.getTasks();
-        const def = tasks.find(t => t.id === taskId);
+        const def = this._taskManager._storage.getTasks().find(t => t.id === taskId);
         if (!def) return;
-
         this._activeForm = new AddHabitForm(
             def,
             updates => { this._taskManager.updateTask(taskId, updates); this._closeForm(); },
             () => this._closeForm(),
         );
-        const addBtnIdx = this.get_children().indexOf(this._addBtn);
-        this.insert_child_at_index(this._activeForm, addBtnIdx);
+        const idx = this._leftCol.get_children().indexOf(this._addBtn);
+        this._leftCol.insert_child_at_index(this._activeForm, idx);
         this._addBtn.hide();
     }
 
     _closeForm() {
-        this._showingForm = false;
-        this._editingTaskId = null;
+        this._showingForm    = false;
+        this._editingTaskId  = null;
         if (this._activeForm) { this._activeForm.destroy(); this._activeForm = null; }
         this._addBtn.show();
     }
+});
 
-    // ── Refresh ───────────────────────────────────────────────────────────────
+// ── PulsePopover ──────────────────────────────────────────────────────────────
 
-    _refresh() {
+export const PulsePopover = GObject.registerClass(
+class PulsePopover extends St.BoxLayout {
+    _init(taskManager, _extensionPath, width) {
+        super._init({
+            style_class: 'pulse-popover',
+            vertical: true,
+            width,
+        });
+
+        this._taskManager = taskManager;
+        this._width       = width;
+        this._currentView = 'main';
+
+        this._buildHeader();
+        this._buildBody();
+
+        // Data change → refresh only the main view (not on hover)
+        this._changedId = taskManager.connect('tasks-changed', () => {
+            this._updateHeader();
+            if (this._currentView === 'main') this._mainView.refresh();
+        });
+        this._rolledId = taskManager.connect('day-rolled-over', () => {
+            this._updateHeader();
+            if (this._currentView === 'main') this._mainView.refresh();
+        });
+    }
+
+    destroy() {
+        if (this._changedId) { this._taskManager.disconnect(this._changedId); this._changedId = null; }
+        if (this._rolledId)  { this._taskManager.disconnect(this._rolledId);  this._rolledId  = null; }
+        super.destroy();
+    }
+
+    // ── Header: PULSE | date | summary | icon buttons ─────────────────────────
+
+    _buildHeader() {
+        const header = new St.BoxLayout({
+            style_class: 'pulse-header',
+            x_expand: true,
+        });
+
+        header.add_child(new St.Label({ text: 'PULSE', style_class: 'pulse-wordmark' }));
+
+        this._dateLabel = new St.Label({
+            text: _todayLabel(),
+            style_class: 'pulse-header-date',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        header.add_child(this._dateLabel);
+
+        this._summaryLabel = new St.Label({
+            style_class: 'pulse-header-summary',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        header.add_child(this._summaryLabel);
+
+        // Icon-only footer buttons in the header's right corner
+        const btnBox = new St.BoxLayout({ style_class: 'pulse-icon-btn-box', y_align: Clutter.ActorAlign.CENTER });
+
+        const settingsBtn = new St.Button({
+            style_class: 'pulse-icon-btn',
+            can_focus: true,
+        });
+        settingsBtn.child = new St.Icon({
+            icon_name: 'preferences-system-symbolic',
+            icon_size: 14,
+            style_class: 'pulse-icon-btn-icon',
+        });
+        settingsBtn.connect('clicked', () => this._switchView('settings'));
+        btnBox.add_child(settingsBtn);
+
+        const reportBtn = new St.Button({
+            style_class: 'pulse-icon-btn',
+            can_focus: true,
+        });
+        reportBtn.child = new St.Icon({
+            icon_name: 'x-office-spreadsheet-symbolic',
+            fallback_icon_name: 'office-chart-bar-symbolic',
+            icon_size: 14,
+            style_class: 'pulse-icon-btn-icon',
+        });
+        reportBtn.connect('clicked', () => this._switchView('report'));
+        btnBox.add_child(reportBtn);
+
+        header.add_child(btnBox);
+        this.add_child(header);
         this._updateHeader();
-        this._renderTasks();
-        const data = this._taskManager.getHeatmapData(84);
-        this._heatmap.update(data);
+    }
+
+    _updateHeader() {
+        const { completed, total, pct } = this._taskManager.getTodaySummary();
+        this._dateLabel.set_text(_todayLabel());
+        this._summaryLabel.set_text(
+            total === 0 ? '' : `${completed} / ${total} · ${pct}%`
+        );
+    }
+
+    // ── Body: view container ──────────────────────────────────────────────────
+
+    _buildBody() {
+        this._body = new St.Widget({
+            x_expand: true,
+            y_expand: true,
+            style_class: 'pulse-body',
+        });
+        this.add_child(this._body);
+        this._showMainView();
+    }
+
+    // ── View switching ────────────────────────────────────────────────────────
+
+    _switchView(view) {
+        if (view === this._currentView) return;
+        this._currentView = view;
+        this._body.destroy_all_children();
+        if (view === 'main')     this._showMainView();
+        if (view === 'settings') this._showSettingsView();
+        if (view === 'report')   this._showReportView();
+    }
+
+    _showMainView() {
+        this._currentView = 'main';
+        this._mainView = new MainView(this._taskManager, this._width);
+        this._mainView.x_expand = true;
+        this._mainView.y_expand = true;
+        this._body.add_child(this._mainView);
+    }
+
+    _showSettingsView() {
+        const view = new SettingsView(this._taskManager, () => this._switchView('main'));
+        view.x_expand = true;
+        view.y_expand = true;
+        this._body.add_child(view);
+    }
+
+    _showReportView() {
+        const view = new ReportView(this._taskManager, () => this._switchView('main'));
+        view.x_expand = true;
+        view.y_expand = true;
+        this._body.add_child(view);
     }
 });

@@ -41,24 +41,31 @@ class Heatmap extends St.Widget {
     _init(data) {
         super._init({
             style_class: 'hp-heatmap',
-            // We set explicit size after computing layout
         });
 
-        this._data = data;
-        this._tooltip = null;
+        this._data  = data;
         this._cells = [];
+
+        // ONE persistent tooltip label — created once, repositioned on hover.
+        // Never destroyed/recreated during hover — that was the flicker root cause.
+        this._tooltip = new St.Label({ style_class: 'hp-tooltip' });
+        this._tooltip.hide();
+        // Will be added to parent after _build() so it renders on top.
+        this._tooltipAdded = false;
 
         this._build();
     }
 
     /**
-     * Replace data and re-render.
+     * Replace data and re-render. Only called on data changes, never on hover.
      * @param {object[]} data
      */
     update(data) {
         this._data = data;
         this.destroy_all_children();
         this._cells = [];
+        this._tooltipAdded = false;
+        this._tooltip.hide();
         this._build();
     }
 
@@ -139,29 +146,15 @@ class Heatmap extends St.Widget {
     }
 
     _renderCells(labelColW, monthRowH) {
-        // Map each data entry to a column + row in the grid
-        // We want the grid to end at today (rightmost column).
-        // The last entry is today; its column = last column.
-        // We need to figure out how many entries go in the last (rightmost) column.
-        // Today's DOW determines how many cells are filled in that column.
-
-        // Strategy: iterate data entries and assign (col, row) by their DOW
-        // We process entries from oldest (left) to newest (right).
-        // The first entry's DOW tells us which row it starts in column 0.
-
         const n = this._data.length;
         if (n === 0) return;
 
-        // Figure out starting week offset: oldest entry's day-of-week
         const firstEntry = this._data[0];
         const [fy, fm, fd] = firstEntry.date.split('-').map(Number);
-        const firstDOW = new Date(fy, fm - 1, fd).getDay(); // 0=Sun
-        // row for DOW: Mon→0, Tue→1, Wed→2, Thu→3, Fri→4, Sat→5, Sun→6
+        const firstDOW = new Date(fy, fm - 1, fd).getDay();
         const dowToRow = (dow) => dow === 0 ? 6 : dow - 1;
-
         const startRow = dowToRow(firstDOW);
 
-        // Each entry maps to: index in the "linear" grid starting at (col=0, row=startRow)
         for (let i = 0; i < n; i++) {
             const linearPos = startRow + i;
             const col = Math.floor(linearPos / 7);
@@ -169,7 +162,7 @@ class Heatmap extends St.Widget {
 
             const entry = this._data[i];
             const x = labelColW + col * CELL_STEP;
-            const y = 16 + row * CELL_STEP; // 16 = monthRowH
+            const y = 16 + row * CELL_STEP;
 
             const cell = new St.Widget({
                 style_class: `hp-cell hp-cell-l${entry.level}${entry.isToday ? ' hp-cell-today' : ''}`,
@@ -180,52 +173,42 @@ class Heatmap extends St.Widget {
             });
             cell.set_position(x, y);
 
-            // Hover tooltip
+            // Hover: update + reposition the ONE persistent tooltip.
+            // Never create or destroy it here — that was the flicker root cause.
             cell.connect('notify::hover', () => {
                 if (cell.hover) {
                     this._showTooltip(cell, entry);
                 } else {
-                    this._hideTooltip();
+                    this._tooltip.hide();
                 }
             });
 
             this.add_child(cell);
             this._cells.push({ cell, entry });
         }
+
+        // Add tooltip last so it renders above all cells.
+        // Only add once per build.
+        if (!this._tooltipAdded) {
+            this.add_child(this._tooltip);
+            this._tooltipAdded = true;
+        }
     }
 
     _showTooltip(cell, entry) {
-        this._hideTooltip();
-
         const completed = entry.tasks.filter(t => t.completed).length;
-        const total = entry.tasks.length;
-        const pct = entry.completionPct;
-        const dateStr = _formatDateDisplay(entry.date);
+        const total     = entry.tasks.length;
+        const pct       = entry.completionPct;
+        const dateStr   = _formatDateDisplay(entry.date);
 
-        let text;
-        if (total === 0) {
-            text = `${dateStr} — No tasks`;
-        } else {
-            text = `${dateStr} — ${completed} / ${total} completed · ${pct}%`;
-        }
+        const text = total === 0
+            ? `${dateStr} — No tasks`
+            : `${dateStr} — ${completed} / ${total} completed · ${pct}%`;
 
-        this._tooltip = new St.Label({
-            text,
-            style_class: 'hp-tooltip',
-        });
-
-        // Position relative to cell, above it
+        // Update text and position in place — no destroy, no re-add.
+        this._tooltip.set_text(text);
         const [cx, cy] = cell.get_position();
-        this._tooltip.set_position(cx, cy - 24);
-        this.add_child(this._tooltip);
-        // No raise_top() — it was removed from Clutter. The tooltip is added
-        // last, so it is already the topmost child.
-    }
-
-    _hideTooltip() {
-        if (this._tooltip) {
-            this._tooltip.destroy();
-            this._tooltip = null;
-        }
+        this._tooltip.set_position(cx, Math.max(0, cy - 24));
+        this._tooltip.show();
     }
 });

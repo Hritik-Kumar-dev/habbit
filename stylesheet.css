@@ -45,7 +45,7 @@
 /* ── PULSE header ────────────────────────────────────────────────────────── */
 
 .pulse-header {
-    padding: 14px 16px 10px 16px;
+    padding: 12px 14px 10px 14px;
     border-bottom: 1px solid #2A2E38;
     spacing: 8px;
 }
@@ -68,71 +68,364 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* Icon-only ⚙ / 📊 buttons in header */
+.pulse-icon-btn-box {
+    spacing: 4px;
+}
+
+.pulse-icon-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 6px;
+    /* Reserve transparent border so hover never causes relayout */
+    border: 1px solid transparent;
+    background-color: transparent;
+    padding: 0;
+}
+
+.pulse-icon-btn:hover {
+    background-color: #20232A;
+    border-color: #2A2E38;
+    /* Only color changes — no width/height/padding changes */
+}
+
+.pulse-icon-btn:active {
+    background-color: #2A2E38;
+}
+
+.pulse-icon-btn-icon {
+    icon-size: 14px;
+    color: #A0A4AD;
+}
+
+.pulse-icon-btn:hover .pulse-icon-btn-icon {
+    color: #F2F2F2;
+}
+
+/* ── Body / view container ───────────────────────────────────────────────── */
+
+.pulse-body {
+    padding: 14px;
+}
+
+/* ── Main view two columns ───────────────────────────────────────────────── */
+
+.pulse-main-view {
+    spacing: 0px;
+}
+
+.pulse-left-col {
+    /* width set in JS */
+}
+
+.pulse-right-col {
+    /* width set in JS */
+}
+
 /* ── Task scroll area ────────────────────────────────────────────────────── */
 
 .pulse-task-scroll {
-    max-height: 260px;
-    padding: 4px 8px;
+    max-height: 280px;
+}
+
+/* ── Task rows — NEW LAYOUT: name | time | action ────────────────────────── */
+
+.pulse-task-row {
+    padding: 7px 10px;
+    border-radius: 7px;
+    spacing: 8px;
+    background-color: transparent;
+    /* Reserve transparent border — hover must not change geometry */
+    border: 1px solid transparent;
+    transition-duration: 100ms;
+}
+
+.pulse-task-row:hover {
+    background-color: #1B1E24;
+    border-color: #2A2E38;
+    /* No padding/margin change on hover */
+}
+
+.pulse-task-current {
+    border-color: rgba(75, 158, 255, 0.22);
+    background-color: rgba(75, 158, 255, 0.05);
+}
+
+.pulse-task-current:hover {
+    border-color: rgba(75, 158, 255, 0.38);
+    background-color: rgba(75, 158, 255, 0.09);
+}
+
+.pulse-task-completed {
+    opacity: 0.55;
+}
+
+.pulse-task-missed {
+    opacity: 0.4;
+}
+
+.pulse-task-name {
+    font-size: 13px;
+    color: #F2F2F2;
+}
+
+.pulse-task-done-text {
+    color: #5A5E68;
+}
+
+.pulse-task-time {
+    font-size: 11px;
+    color: #5A5E68;
+    font-variant-numeric: tabular-nums;
+}
+
+/* "Mark as done" pill button */
+.pulse-mark-btn {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    color: #A0A4AD;
+    /* Reserve same-width border in normal state */
+    border: 1px solid #2A2E38;
+    background-color: transparent;
+}
+
+.pulse-mark-btn:hover {
+    color: #4B9EFF;
+    border-color: rgba(75, 158, 255, 0.5);
+    background-color: rgba(75, 158, 255, 0.08);
+    /* No size change */
+}
+
+.pulse-mark-btn:active {
+    background-color: rgba(75, 158, 255, 0.18);
+}
+
+/* Green check icon (completed state) */
+.pulse-done-icon {
+    icon-size: 14px;
+    color: #34C759;
+}
+
+/* ── Heatmap ─────────────────────────────────────────────────────────────── */
+
+.pulse-heatmap-scroll {
+    padding: 0 0 4px 0;
+}
+
+/* ── Summary card (right column) ─────────────────────────────────────────── */
+
+.pulse-summary-card {
+    background-color: #1B1E24;
+    border: 1px solid #2A2E38;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    spacing: 3px;
+}
+
+.pulse-summary-completion {
+    font-size: 12px;
+    color: #F2F2F2;
+}
+
+.pulse-summary-pct {
+    font-size: 20px;
+    font-weight: bold;
+    color: #4B9EFF;
+}
+
+.pulse-summary-encourage {
+    font-size: 11px;
+    color: #A0A4AD;
+}
+
+/* ── View system (settings / report) ─────────────────────────────────────── */
+
+.pulse-view {
+    /* Fills the body */
+}
+
+.pulse-view-topbar {
+    padding: 0 0 10px 0;
+    spacing: 4px;
+    border-bottom: 1px solid #2A2E38;
+    margin-bottom: 10px;
+}
+
+.pulse-back-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #A0A4AD;
+    background-color: transparent;
+    border: 1px solid transparent;
+}
+
+.pulse-back-btn:hover {
+    color: #F2F2F2;
+    border-color: #2A2E38;
+    background-color: #1B1E24;
+}
+
+.pulse-view-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: #F2F2F2;
+}
+
+.pulse-view-add-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 6px;
+    font-size: 16px;
+    color: #4B9EFF;
+    background-color: rgba(75, 158, 255, 0.1);
+    border: 1px solid rgba(75, 158, 255, 0.25);
+    padding: 0;
+}
+
+.pulse-view-add-btn:hover {
+    background-color: rgba(75, 158, 255, 0.2);
+}
+
+/* ── Settings list ───────────────────────────────────────────────────────── */
+
+.pulse-settings-scroll {
+    max-height: 340px;
+}
+
+.pulse-settings-list {
+    spacing: 2px;
+}
+
+.pulse-settings-row {
+    padding: 8px 10px;
+    border-radius: 7px;
+    spacing: 8px;
+    background-color: transparent;
+    border: 1px solid transparent;
+}
+
+.pulse-settings-row:hover {
+    background-color: #1B1E24;
+    border-color: #2A2E38;
+}
+
+.pulse-settings-name {
+    font-size: 13px;
+    color: #F2F2F2;
+}
+
+.pulse-settings-sub {
+    font-size: 11px;
+    color: #5A5E68;
+}
+
+.pulse-settings-icon-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 5px;
+    font-size: 13px;
+    color: #A0A4AD;
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: 0;
+}
+
+.pulse-settings-icon-btn:hover {
+    background-color: #20232A;
+    border-color: #2A2E38;
+    color: #F2F2F2;
+}
+
+.pulse-settings-del-btn {
+    color: #FF6B6B;
+}
+
+.pulse-settings-del-btn:hover {
+    color: #FF6B6B;
+    background-color: rgba(255, 107, 107, 0.1);
+}
+
+/* ── Settings form extras ────────────────────────────────────────────────── */
+
+.hp-form-label {
+    font-size: 12px;
+    color: #A0A4AD;
+}
+
+/* Repeat every-day toggle */
+.pulse-toggle {
+    width: 36px;
+    height: 20px;
+    min-width: 36px;
+    min-height: 20px;
+    border-radius: 10px;
+    background-color: #2A2E38;
+    border: 1px solid #3A3E48;
+    padding: 0;
+}
+
+.pulse-toggle-on {
+    background-color: #4B9EFF;
+    border-color: #4B9EFF;
+}
+
+/* Day chips */
+.pulse-chip-row {
+    spacing: 4px;
+    padding: 2px 0;
+}
+
+.pulse-day-chip {
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #5A5E68;
+    background-color: transparent;
+    border: 1px solid #2A2E38;
+}
+
+.pulse-day-chip-on {
+    color: #4B9EFF;
+    background-color: rgba(75, 158, 255, 0.12);
+    border-color: rgba(75, 158, 255, 0.35);
+}
+
+/* Validation error */
+.pulse-form-error {
+    font-size: 11px;
+    color: #FF9500;
+    padding: 0 2px;
+}
+
+/* ── Report placeholder ──────────────────────────────────────────────────── */
+
+.pulse-report-mount {
+    /* Mount point for report dashboard */
+}
+
+.pulse-report-container {
+    /* Filled by buildReportView() */
+}
+
+.pulse-report-placeholder {
+    font-size: 13px;
+    color: #5A5E68;
+    padding: 40px;
 }
 
 /* ── Heatmap (compact) ───────────────────────────────────────────────────── */
 
 .pulse-heatmap-scroll {
-    padding: 8px 12px 4px 12px;
-}
-
-/* ── Bottom bar ──────────────────────────────────────────────────────────── */
-
-.pulse-bottom-bar {
-    padding: 10px 12px 12px 12px;
-    border-top: 1px solid #2A2E38;
-    spacing: 8px;
-}
-
-.pulse-bar-btn {
-    padding: 8px 12px;
-    border-radius: 7px;
-    background-color: #20232A;
-    border: 1px solid #2A2E38;
-    color: #A0A4AD;
-    font-size: 12px;
-}
-
-.pulse-bar-btn:hover {
-    background-color: #2A2E38;
-    color: #F2F2F2;
-}
-
-.pulse-bar-btn-accent {
-    background-color: rgba(75, 158, 255, 0.12);
-    border-color: rgba(75, 158, 255, 0.3);
-    color: #4B9EFF;
-}
-
-.pulse-bar-btn-accent:hover {
-    background-color: rgba(75, 158, 255, 0.22);
-    border-color: rgba(75, 158, 255, 0.5);
-}
-
-/* ── Form: from–to dash ──────────────────────────────────────────────────── */
-
-.hp-form-dash {
-    color: #5A5E68;
-    padding: 0 4px;
-}
-
-/* ── Legacy hp-container (kept for compatibility) ────────────────────────── */
-
-.hp-container {
-    background-color: transparent;
-    padding: 20px;
-    spacing: 0px;
-}
-
-.hp-panel-wrap {
-    background-color: #1B1E24;
-    border-radius: 10px;
-    border: 1px solid #2A2E38;
+    padding: 8px 0 4px 0;
 }
 
 /* ── Panel headers ────────────────────────────────────────────────────────── */
