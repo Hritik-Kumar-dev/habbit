@@ -1414,6 +1414,19 @@
     margin-top: 8px;
 }
 
+.pulse-settings-divider {
+    background-color: #2A2E38;
+    margin: 0 8px;
+}
+
+.pulse-settings-right {
+    padding: 8px 0 8px 12px;
+}
+
+.pulse-settings-right-scroll {
+    border-left: 1px solid #2A2E38;
+}
+
 .pulse-settings-section-hdr {
     font-size: 10px;
     font-weight: bold;
@@ -1431,7 +1444,8 @@
     border-radius: 8px;
     background-color: #20232A;
     border: 1px solid #2A2E38;
-    margin: 0 4px 0 0;
+    margin-bottom: 6px;
+    x_expand: false;
 }
 
 .pulse-theme-chip:hover {

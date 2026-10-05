@@ -306,33 +306,37 @@ function buildWeeklyOverview(rd, innerW) {
 
 // ── 4. Habit matrix ───────────────────────────────────────────────────────────
 
-function buildHabitMatrix(rd) {
+function buildHabitMatrix(rd, innerW) {
     const section = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
     section.add_child(sectionHdr('DAILY HABITS'));
     section.add_child(divider());
 
-    const CELL   = 20;
-    const LABEL  = 140;
-    const GOAL_W = 36;
+    if (!rd.habitStats.length) {
+        section.add_child(new St.Label({ text: 'No habits defined.', style_class: 'rpt-empty' }));
+        return section;
+    }
 
-    const scroll = new St.ScrollView({
-        x_expand: true,
-        hscrollbar_policy: St.PolicyType.AUTOMATIC,
-        vscrollbar_policy: St.PolicyType.NEVER,
-        overlay_scrollbars: true,
-    });
+    // Compute cell size to fit all columns in available width — NO horizontal scroll
+    const LABEL  = 130;
+    const GOAL_W = 32;
+    const totalCols = rd.days.length; // e.g. 31 for October
+    const available = innerW - LABEL - GOAL_W - 8;
+    // CELL must be at least 14px for readability
+    const CELL = Math.max(14, Math.floor(available / Math.max(totalCols, 1)));
 
-    const grid = new St.BoxLayout({ vertical: true });
+    const grid = new St.BoxLayout({ vertical: true, x_expand: true });
 
-    // Column header
-    const colHdr = new St.BoxLayout({});
+    // Column headers
+    const colHdr = new St.BoxLayout({ x_expand: true });
     colHdr.add_child(new St.Widget({ width: LABEL }));
     colHdr.add_child(new St.Label({ text: 'Goal', style_class: 'rpt-matrix-goal-hdr', width: GOAL_W }));
 
     rd.weeks.forEach((week, wi) => {
         const wHdr = new St.BoxLayout({ vertical: true });
-        wHdr.add_child(new St.Label({ text: `Wk ${wi+1}`, style_class: 'rpt-matrix-week-label',
-            width: week.length * CELL, x_align: Clutter.ActorAlign.CENTER }));
+        wHdr.add_child(new St.Label({
+            text: `Wk ${wi+1}`, style_class: 'rpt-matrix-week-label',
+            width: week.length * CELL, x_align: Clutter.ActorAlign.CENTER,
+        }));
         const dayRow = new St.BoxLayout({});
         week.forEach(d => {
             const cell = new St.BoxLayout({ vertical: true, width: CELL });
@@ -347,8 +351,10 @@ function buildHabitMatrix(rd) {
     });
     grid.add_child(colHdr);
 
+    // Habit rows — wrap in vertical scroll if many habits
+    const rowBox = new St.BoxLayout({ vertical: true, x_expand: true });
     rd.habitStats.forEach(hs => {
-        const row = new St.BoxLayout({ style_class: 'rpt-matrix-row' });
+        const row = new St.BoxLayout({ style_class: 'rpt-matrix-row', x_expand: true });
         const name = new St.Label({ text: hs.task.title, style_class: 'rpt-matrix-name', width: LABEL });
         name.clutter_text.ellipsize = 3;
         row.add_child(name);
@@ -366,13 +372,25 @@ function buildHabitMatrix(rd) {
             });
             row.add_child(wCells);
         });
-        grid.add_child(row);
+        rowBox.add_child(row);
     });
 
-    const holder = new St.BoxLayout({ x_expand: true });
-    holder.add_child(grid);
-    scroll.child = holder;
-    section.add_child(scroll);
+    // Vertical scroll for many habits (max 200px height)
+    if (rd.habitStats.length > 6) {
+        const vScroll = new St.ScrollView({
+            x_expand: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+            height: Math.min(rd.habitStats.length * 24, 240),
+        });
+        vScroll.child = rowBox;
+        grid.add_child(vScroll);
+    } else {
+        grid.add_child(rowBox);
+    }
+
+    section.add_child(grid);
     return section;
 }
 
@@ -472,7 +490,7 @@ class ReportDashboard extends St.BoxLayout {
         const top10W  = this._innerW - matrixW - 16;
 
         const matrixWrap = new St.BoxLayout({ vertical: true, width: matrixW });
-        matrixWrap.add_child(buildHabitMatrix(rd));
+        matrixWrap.add_child(buildHabitMatrix(rd, matrixW));
         midRow.add_child(matrixWrap);
         midRow.add_child(new St.Widget({ width: 16 }));
 
@@ -481,7 +499,21 @@ class ReportDashboard extends St.BoxLayout {
         midRow.add_child(top10Wrap);
         inner.add_child(midRow);
 
-        inner.add_child(buildOverallProgress(rd, this._innerW));
+        // Overall progress — vertical scroll for many habits
+        const overallSection = buildOverallProgress(rd, this._innerW);
+        if (rd.habitStats.length > 5) {
+            const overallScroll = new St.ScrollView({
+                x_expand: true,
+                hscrollbar_policy: St.PolicyType.NEVER,
+                vscrollbar_policy: St.PolicyType.AUTOMATIC,
+                overlay_scrollbars: true,
+                height: Math.min(rd.habitStats.length * 38, 280),
+            });
+            overallScroll.child = overallSection;
+            inner.add_child(overallScroll);
+        } else {
+            inner.add_child(overallSection);
+        }
 
         scroll.child = inner;
         this.add_child(scroll);

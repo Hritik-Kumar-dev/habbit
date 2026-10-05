@@ -389,39 +389,30 @@ class SettingsView extends St.BoxLayout {
         this._taskManager = taskManager;
         this._activeForm  = null;
 
-        // Back button row
+        // ── Top bar ───────────────────────────────────────────────────────────
         const topBar = new St.BoxLayout({ style_class: 'pulse-view-topbar', x_expand: true });
-        const backBtn = new St.Button({
-            label: '← Back',
-            style_class: 'pulse-back-btn',
-            can_focus: true,
-        });
-        backBtn.connect('clicked', () => {
-            this._closeForm();
-            onBack();
-        });
+        const backBtn = new St.Button({ label: '← Back', style_class: 'pulse-back-btn', can_focus: true });
+        backBtn.connect('clicked', () => { this._closeForm(); onBack(); });
         topBar.add_child(backBtn);
-
-        const title = new St.Label({
-            text: 'Settings',
-            style_class: 'pulse-view-title',
-            x_expand: true,
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
-        });
-        topBar.add_child(title);
-
-        const addBtn = new St.Button({
-            label: '+',
-            style_class: 'pulse-view-add-btn',
-            can_focus: true,
-        });
+        topBar.add_child(new St.Label({
+            text: 'Settings', style_class: 'pulse-view-title',
+            x_expand: true, x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER,
+        }));
+        const addBtn = new St.Button({ label: '+', style_class: 'pulse-view-add-btn', can_focus: true });
         addBtn.connect('clicked', () => this._openAddForm());
         topBar.add_child(addBtn);
-
         this.add_child(topBar);
 
-        // Habit list in a scrollview
+        // ── Two-column body ───────────────────────────────────────────────────
+        // LEFT: habit list + add form
+        // RIGHT: appearance settings (themes, future options)
+        const body = new St.BoxLayout({ x_expand: true, y_expand: true });
+
+        // Left column — scrollable habit list
+        const leftCol = new St.BoxLayout({ vertical: true, x_expand: true, y_expand: true });
+
+        leftCol.add_child(new St.Label({ text: 'HABITS', style_class: 'pulse-settings-section-hdr' }));
+
         this._scroll = new St.ScrollView({
             style_class: 'pulse-settings-scroll',
             x_expand: true,
@@ -430,24 +421,37 @@ class SettingsView extends St.BoxLayout {
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
             overlay_scrollbars: true,
         });
-        this._listBox = new St.BoxLayout({
-            style_class: 'pulse-settings-list',
-            vertical: true,
-            x_expand: true,
-        });
+        this._listBox = new St.BoxLayout({ style_class: 'pulse-settings-list', vertical: true, x_expand: true });
         this._scroll.child = this._listBox;
-        this.add_child(this._scroll);
+        leftCol.add_child(this._scroll);
 
-        // Form mount point (below list)
+        // Form mount below list (inside left col)
         this._formMount = new St.BoxLayout({ vertical: true, x_expand: true });
-        this.add_child(this._formMount);
+        leftCol.add_child(this._formMount);
 
-        // ── Appearance section ────────────────────────────────────────────────
+        body.add_child(leftCol);
+
+        // Divider
+        body.add_child(new St.Widget({ style_class: 'pulse-settings-divider', width: 1 }));
+
+        // Right column — appearance + future settings, scrollable
+        const rightScroll = new St.ScrollView({
+            style_class: 'pulse-settings-right-scroll',
+            x_expand: false,
+            y_expand: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+            width: 220,
+        });
+        this._rightCol = new St.BoxLayout({ vertical: true, width: 220, style_class: 'pulse-settings-right' });
+        rightScroll.child = this._rightCol;
+        body.add_child(rightScroll);
+
+        this.add_child(body);
+
         this._buildAppearance();
-
         this._buildList();
-
-        // Refresh when tasks change
         this._changedId = taskManager.connect('tasks-changed', () => this._buildList());
     }
 
@@ -462,18 +466,18 @@ class SettingsView extends St.BoxLayout {
     _buildAppearance() {
         const prefs = _loadPrefs();
 
-        const section = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'pulse-settings-section' });
-        section.add_child(new St.Label({ text: 'APPEARANCE', style_class: 'pulse-settings-section-hdr' }));
+        // ── Theme section ─────────────────────────────────────────────────────
+        const themeSection = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'pulse-settings-section' });
+        themeSection.add_child(new St.Label({ text: 'THEME', style_class: 'pulse-settings-section-hdr' }));
 
-        const themeRow = new St.BoxLayout({ x_expand: true, style_class: 'pulse-theme-row' });
-
+        const themeList = new St.BoxLayout({ vertical: true, x_expand: true });
         THEMES.forEach(theme => {
             const btn = new St.Button({
                 style_class: theme.id === prefs.theme
                     ? 'pulse-theme-chip pulse-theme-chip-on'
                     : 'pulse-theme-chip',
                 can_focus: true,
-                vertical: false,
+                x_expand: true,
             });
             const inner = new St.BoxLayout({ vertical: true });
             inner.add_child(new St.Label({ text: theme.label, style_class: 'pulse-theme-name' }));
@@ -484,20 +488,27 @@ class SettingsView extends St.BoxLayout {
                 const p = _loadPrefs();
                 p.theme = theme.id;
                 _savePrefs(p);
-                // Apply theme class to the popover root
                 this._applyTheme(theme.id);
-                // Update chip styles
-                themeRow.get_children().forEach((c, i) => {
+                themeList.get_children().forEach((c, i) => {
                     c.style_class = THEMES[i].id === theme.id
                         ? 'pulse-theme-chip pulse-theme-chip-on'
                         : 'pulse-theme-chip';
                 });
             });
-            themeRow.add_child(btn);
+            themeList.add_child(btn);
         });
 
-        section.add_child(themeRow);
-        this.add_child(section);
+        themeSection.add_child(themeList);
+
+        // ── About section ─────────────────────────────────────────────────────
+        const aboutSection = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'pulse-settings-section' });
+        aboutSection.add_child(new St.Label({ text: 'ABOUT', style_class: 'pulse-settings-section-hdr' }));
+        aboutSection.add_child(new St.Label({ text: 'PULSE v1', style_class: 'pulse-settings-name' }));
+        aboutSection.add_child(new St.Label({ text: 'Habit tracker for GNOME 50', style_class: 'pulse-settings-sub' }));
+        aboutSection.add_child(new St.Label({ text: 'ubuntu 26.04 LTS', style_class: 'pulse-settings-sub' }));
+
+        this._rightCol.add_child(themeSection);
+        this._rightCol.add_child(aboutSection);
     }
 
     _applyTheme(themeId) {
