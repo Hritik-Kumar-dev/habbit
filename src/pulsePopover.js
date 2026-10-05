@@ -29,6 +29,7 @@
  */
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
@@ -36,6 +37,40 @@ import St from 'gi://St';
 import { TaskState } from './taskManager.js';
 import { Heatmap } from './heatmap.js';
 import { ReportDashboard } from './reportView.js';
+
+// ── Theme helpers ──────────────────────────────────────────────────────────────
+
+const THEMES = [
+    { id: 'dark-blue',     label: 'Dark Blue',     desc: 'Default dark + blue accent' },
+    { id: 'dark-purple',   label: 'Dark Purple',   desc: 'Dark + purple accent' },
+    { id: 'dark-gray',     label: 'Dark Gray',     desc: 'Neutral dark gray' },
+    { id: 'dark-original', label: 'Dark Original', desc: 'Pure dark, minimal color' },
+    { id: 'light',         label: 'Light',         desc: 'Light mode' },
+];
+
+const PREFS_PATH = GLib.build_filenamev([GLib.get_user_data_dir(), 'pulse@hritikdev', 'prefs.json']);
+
+function _loadPrefs() {
+    try {
+        const [, b] = Gio.File.new_for_path(PREFS_PATH).load_contents(null);
+        return JSON.parse(new TextDecoder().decode(b));
+    } catch (_) { return { theme: 'dark-blue' }; }
+}
+
+function _savePrefs(prefs) {
+    try {
+        const dir = GLib.build_filenamev([GLib.get_user_data_dir(), 'pulse@hritikdev']);
+        Gio.File.new_for_path(dir).make_directory_with_parents(null);
+    } catch (_) {}
+    try {
+        const tmp = `${PREFS_PATH}.tmp`;
+        const out = Gio.File.new_for_path(tmp).replace(null, false,
+            Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        out.write_all(new TextEncoder().encode(JSON.stringify(prefs, null, 2)), null);
+        out.close(null);
+        GLib.rename(tmp, PREFS_PATH);
+    } catch (e) { console.error('[PULSE] prefs save failed:', e.message); }
+}
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -407,6 +442,9 @@ class SettingsView extends St.BoxLayout {
         this._formMount = new St.BoxLayout({ vertical: true, x_expand: true });
         this.add_child(this._formMount);
 
+        // ── Appearance section ────────────────────────────────────────────────
+        this._buildAppearance();
+
         this._buildList();
 
         // Refresh when tasks change
@@ -419,6 +457,64 @@ class SettingsView extends St.BoxLayout {
             this._changedId = null;
         }
         super.destroy();
+    }
+
+    _buildAppearance() {
+        const prefs = _loadPrefs();
+
+        const section = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'pulse-settings-section' });
+        section.add_child(new St.Label({ text: 'APPEARANCE', style_class: 'pulse-settings-section-hdr' }));
+
+        const themeRow = new St.BoxLayout({ x_expand: true, style_class: 'pulse-theme-row' });
+
+        THEMES.forEach(theme => {
+            const btn = new St.Button({
+                style_class: theme.id === prefs.theme
+                    ? 'pulse-theme-chip pulse-theme-chip-on'
+                    : 'pulse-theme-chip',
+                can_focus: true,
+                vertical: false,
+            });
+            const inner = new St.BoxLayout({ vertical: true });
+            inner.add_child(new St.Label({ text: theme.label, style_class: 'pulse-theme-name' }));
+            inner.add_child(new St.Label({ text: theme.desc,  style_class: 'pulse-theme-desc' }));
+            btn.child = inner;
+
+            btn.connect('clicked', () => {
+                const p = _loadPrefs();
+                p.theme = theme.id;
+                _savePrefs(p);
+                // Apply theme class to the popover root
+                this._applyTheme(theme.id);
+                // Update chip styles
+                themeRow.get_children().forEach((c, i) => {
+                    c.style_class = THEMES[i].id === theme.id
+                        ? 'pulse-theme-chip pulse-theme-chip-on'
+                        : 'pulse-theme-chip';
+                });
+            });
+            themeRow.add_child(btn);
+        });
+
+        section.add_child(themeRow);
+        this.add_child(section);
+    }
+
+    _applyTheme(themeId) {
+        // Walk up to find the PulsePopover (the root of our widget tree)
+        let node = this;
+        while (node) {
+            if (node.style_class && node.style_class.includes('pulse-popover')) {
+                // Remove all theme classes, add the new one
+                const base = node.style_class
+                    .split(' ')
+                    .filter(c => !c.startsWith('theme-'))
+                    .join(' ');
+                node.style_class = `${base} theme-${themeId}`;
+                return;
+            }
+            node = node.get_parent?.() ?? null;
+        }
     }
 
     _buildList() {
@@ -783,8 +879,12 @@ class PulsePopover extends St.BoxLayout {
         this._taskManager = taskManager;
         this._mainWidth   = mainWidth;
         this._reportWidth = reportWidth || mainWidth;
-        this._width       = mainWidth;   // current active width
+        this._width       = mainWidth;
         this._currentView = 'main';
+
+        // Apply saved theme on creation
+        const savedTheme = _loadPrefs().theme || 'dark-blue';
+        this.style_class = `pulse-popover theme-${savedTheme}`;
 
         this._buildHeader();
         this._buildBody();

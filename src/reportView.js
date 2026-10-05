@@ -1,27 +1,25 @@
 /**
  * src/reportView.js — PULSE Monthly Dashboard
  *
- * Built entirely with St widgets — no Cairo, no Clutter.Canvas.
- * (Clutter.Canvas was removed in GNOME 45; St.DrawingArea doesn't exist
- *  in GNOME 50's St-18 typelib either.)
- *
- * Charts are rendered as grids of St.Widget rectangles (same approach
- * as the heatmap). All data derives from a single ReportData instance.
+ * Zero overflow guarantee:
+ *   - All progress bars use pct * (innerW / 100) so they NEVER exceed the container.
+ *   - Weekly overview uses x_expand on every column — fills full width.
+ *   - Habit matrix horizontal-scrolls independently.
+ *   - No spacing: in constructors (CSS-only).
+ *   - Every section separated by explicit margin-bottom in CSS.
  */
 
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const MONTHS      = ['January','February','March','April','May','June',
-                     'July','August','September','October','November','December'];
+const MONTHS       = ['January','February','March','April','May','June',
+                      'July','August','September','October','November','December'];
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun',
                       'Jul','Aug','Sep','Oct','Nov','Dec'];
-const DAYS_SHORT  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAYS_SHORT   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-// ── ReportData — single source of truth ──────────────────────────────────────
+// ── ReportData ────────────────────────────────────────────────────────────────
 
 class ReportData {
     constructor(storage, year, month) {
@@ -31,35 +29,27 @@ class ReportData {
         this.allDays = storage.getAllDays();
         this.nDays   = new Date(year, month + 1, 0).getDate();
 
-        // Per-day array
         this.days = [];
         for (let d = 1; d <= this.nDays; d++) {
-            const key = this._key(year, month, d);
-            const rec = this.allDays[key] || { tasks: [], completionPct: 0 };
+            const key  = this._key(year, month, d);
+            const rec  = this.allDays[key] || { tasks: [], completionPct: 0 };
             const dow  = new Date(year, month, d).getDay();
             const goal = this._goalForDay(dow);
             const done = rec.tasks.filter(t => t.completed).length;
-            this.days.push({
-                day: d, dow, key, rec,
-                completed: done,
-                goal,
+            this.days.push({ day: d, dow, key, rec, done, goal,
                 left: Math.max(0, goal - done),
-                pct:  goal > 0 ? Math.round(done / goal * 100) : 0,
-            });
+                pct: goal > 0 ? Math.round(done / goal * 100) : 0 });
         }
 
-        // Calendar weeks (groups of 7 starting from day 1)
         this.weeks = [];
         for (let i = 0; i < this.days.length; i += 7)
             this.weeks.push(this.days.slice(i, i + 7));
 
-        // Monthly totals
-        this.monthDone = this.days.reduce((s, d) => s + d.completed, 0);
+        this.monthDone = this.days.reduce((s, d) => s + d.done, 0);
         this.monthGoal = this.days.reduce((s, d) => s + d.goal, 0);
         this.monthPct  = this.monthGoal > 0
             ? Math.round(this.monthDone / this.monthGoal * 100) : 0;
 
-        // Per-habit stats
         this.habitStats = this.tasks.map(task => {
             const goal = this._habitGoal(task);
             let done = 0;
@@ -71,170 +61,87 @@ class ReportData {
                      pct: goal > 0 ? Math.round(done / goal * 100) : 0 };
         });
 
-        this.top10 = [...this.habitStats]
-            .sort((a, b) => b.done - a.done)
-            .slice(0, 10);
+        this.top10 = [...this.habitStats].sort((a,b) => b.done - a.done).slice(0, 10);
     }
 
     _key(y, m, d) {
         return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     }
-
-    _taskApplies(task, dow) {
-        if (!task.repeat || task.repeat === 'daily') return true;
-        if (task.repeat === 'none') return true;
+    _applies(task, dow) {
+        if (!task.repeat || task.repeat === 'daily' || task.repeat === 'none') return true;
         if (typeof task.repeat === 'object' && Array.isArray(task.repeat.weekdays))
             return task.repeat.weekdays.includes(dow);
         return true;
     }
-
-    _goalForDay(dow) {
-        return this.tasks.filter(t => this._taskApplies(t, dow)).length;
-    }
-
-    _habitGoal(task) {
-        return this.days.filter(d => this._taskApplies(task, d.dow)).length;
-    }
-
+    _goalForDay(dow) { return this.tasks.filter(t => this._applies(t, dow)).length; }
+    _habitGoal(task) { return this.days.filter(d => this._applies(task, d.dow)).length; }
     cellCompleted(taskId, dayIdx) {
         const d = this.days[dayIdx];
         if (!d) return null;
         const task = this.tasks.find(t => t.id === taskId);
-        if (!task || !this._taskApplies(task, d.dow)) return null;
-        const entry = d.rec.tasks.find(e => e.taskId === taskId);
-        return entry ? entry.completed : false;
+        if (!task || !this._applies(task, d.dow)) return null;
+        const e = d.rec.tasks.find(e => e.taskId === taskId);
+        return e ? e.completed : false;
     }
 }
 
-// ── St-widget chart helpers ───────────────────────────────────────────────────
+// ── Progress bar — width strictly capped to innerW ────────────────────────────
 
-/**
- * Mini bar chart using St.Widget columns.
- * values[]: numbers, maxVal: scale top, w: total width, h: total height.
- * Returns St.BoxLayout.
- */
-function makeBarChart(values, maxVal, w, h, barStyleFn) {
+function progressBar(pct, innerW, bgCls, fgCls, h = 6) {
+    const bg = new St.BoxLayout({ style_class: bgCls, x_expand: true, height: h });
+    if (pct > 0) {
+        const w = Math.max(4, Math.round(pct / 100 * (innerW - 4)));
+        bg.add_child(new St.Widget({ style_class: fgCls, height: h,
+            style: `width: ${w}px; max-width: ${innerW}px;` }));
+    }
+    return bg;
+}
+
+// ── Mini bar chart ─────────────────────────────────────────────────────────────
+
+function barChart(values, maxVal, cellW, h) {
     const box = new St.BoxLayout({ x_expand: true });
-    const n   = values.length;
-    const bW  = Math.max(2, Math.floor(w / n) - 1);
-
-    for (let i = 0; i < n; i++) {
-        const v   = values[i] ?? 0;
-        const bH  = maxVal > 0 ? Math.max(v > 0 ? 2 : 0, Math.round(v / maxVal * h)) : 0;
-
-        // Column: spacer on top + bar on bottom
-        const col = new St.BoxLayout({ vertical: true, width: bW });
-
-        // top spacer
-        const spacer = new St.Widget({ height: h - bH, width: bW });
-        col.add_child(spacer);
-
-        // bar fill
-        if (bH > 0) {
-            const bar = new St.Widget({
-                height: bH,
-                width: bW,
-                style_class: barStyleFn ? barStyleFn(i, v) : 'rpt-bar-fill',
-            });
-            col.add_child(bar);
-        }
+    for (const v of values) {
+        const bH = maxVal > 0 ? Math.max(v > 0 ? 3 : 0, Math.round(v / maxVal * h)) : 0;
+        const col = new St.BoxLayout({ vertical: true, width: cellW });
+        col.add_child(new St.Widget({ height: h - bH, width: cellW }));
+        if (bH > 0)
+            col.add_child(new St.Widget({ height: bH, width: cellW - 2,
+                style_class: 'rpt-bar-fill' }));
         box.add_child(col);
     }
     return box;
 }
 
-/**
- * Horizontal progress bar as two St.Widget divs.
- */
-function makeProgressBar(pct, bgClass, fgClass) {
-    const bg = new St.BoxLayout({ style_class: bgClass, x_expand: true });
-    if (pct > 0) {
-        const fg = new St.Widget({
-            style_class: fgClass,
-            // Use inline style for proportional width since St doesn't support %
-            style: `width: ${Math.max(4, Math.round(pct))}px;`,
-        });
-        bg.add_child(fg);
-    }
-    return bg;
-}
+// ── Sparkline (trend dots) ────────────────────────────────────────────────────
 
-/**
- * Mini trend sparkline: row of dots (St.Widget) at varying heights.
- */
-function makeTrendLine(pcts, w, h) {
-    // Use a relative container with absolute-positioned dots
-    const container = new St.Widget({ width: w, height: h, style_class: 'rpt-trend-container' });
+function sparkline(pcts, w, h) {
+    const c = new St.Widget({ width: w, height: h, style_class: 'rpt-trend-container' });
     const n = pcts.length;
-    if (n === 0) return container;
-
-    const stepX = n > 1 ? w / (n - 1) : w / 2;
-
+    if (!n) return c;
+    const stepX = n > 1 ? (w - 6) / (n - 1) : 0;
     pcts.forEach((pct, i) => {
         if (pct === null) return;
-        const x = Math.round(i * stepX);
-        const y = Math.round((100 - pct) / 100 * (h - 6));
-
         const dot = new St.Widget({
-            style_class: pct >= 80 ? 'rpt-dot rpt-dot-high'
-                        : pct >= 40 ? 'rpt-dot rpt-dot-mid'
-                        : 'rpt-dot rpt-dot-low',
-            width: 5,
-            height: 5,
+            width: 6, height: 6,
+            style_class: pct >= 70 ? 'rpt-dot rpt-dot-high'
+                       : pct >= 35 ? 'rpt-dot rpt-dot-mid'
+                       :             'rpt-dot rpt-dot-low',
         });
-        dot.set_position(x, y);
-        container.add_child(dot);
+        dot.set_position(Math.round(i * stepX), Math.round((100 - pct) / 100 * (h - 8)));
+        c.add_child(dot);
     });
-    return container;
+    return c;
 }
 
-/**
- * Donut-like ring represented as a sequence of colored squares.
- * Quick visual approximation without Cairo.
- */
-function makeRingIndicator(pct) {
-    const box = new St.BoxLayout({ vertical: true, style_class: 'rpt-ring-box' });
+// ── Section divider ────────────────────────────────────────────────────────────
 
-    const pctLbl = new St.Label({
-        text: `${pct}%`,
-        style_class: 'rpt-ring-pct',
-        x_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-    });
-    box.add_child(pctLbl);
-
-    const subLbl = new St.Label({
-        text: 'complete',
-        style_class: 'rpt-ring-sub',
-        x_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-    });
-    box.add_child(subLbl);
-
-    // Progress bar — x_expand so it fills whatever container it's in
-    const barBg = new St.BoxLayout({ style_class: 'rpt-ring-bar-bg', x_expand: true, height: 8 });
-    if (pct > 0) {
-        const barFg = new St.Widget({
-            style_class: 'rpt-ring-bar-fg',
-            height: 8,
-            // Proportional width via inline style — capped at 200px (ring section is ~180px wide)
-            style: `width: ${Math.min(200, Math.max(4, Math.round(pct * 1.8)))}px;`,
-        });
-        barBg.add_child(barFg);
-    }
-    box.add_child(barBg);
-
-    return box;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function sectionHeader(text) {
+function sectionHdr(text) {
     return new St.Label({ text, style_class: 'rpt-section-header' });
 }
 
-function statLabel(text, cls) {
-    return new St.Label({ text, style_class: cls || 'rpt-stat-val' });
+function divider() {
+    return new St.Widget({ style_class: 'rpt-divider', height: 1, x_expand: true });
 }
 
 // ── 1. Header ─────────────────────────────────────────────────────────────────
@@ -242,189 +149,171 @@ function statLabel(text, cls) {
 function buildHeader(rd, onMonthChange) {
     const box = new St.BoxLayout({ style_class: 'rpt-header-row', x_expand: true });
 
-    // Left: title + current month name
-    const left = new St.BoxLayout({ vertical: true, x_expand: true });
+    // Left: PULSE + month
+    const left = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-header-left' });
     left.add_child(new St.Label({ text: 'PULSE', style_class: 'rpt-title-big' }));
-    left.add_child(new St.Label({
-        text: `${MONTHS[rd.month]} ${rd.year}`,
-        style_class: 'rpt-title-month',
-    }));
+    left.add_child(new St.Label({ text: `${MONTHS[rd.month]} ${rd.year}`, style_class: 'rpt-title-month' }));
     box.add_child(left);
 
-    // Right: year + month chip selectors
-    const right = new St.BoxLayout({ vertical: true });
+    // Right: year + month selectors
+    const right = new St.BoxLayout({ vertical: true, style_class: 'rpt-selectors' });
 
-    // Year row
     const yearRow = new St.BoxLayout({ style_class: 'rpt-sel-row' });
     yearRow.add_child(new St.Label({ text: 'YEAR', style_class: 'rpt-sel-label' }));
     const now = new Date();
     for (let y = now.getFullYear() - 2; y <= now.getFullYear() + 1; y++) {
-        const b = new St.Button({
-            label: String(y),
-            style_class: y === rd.year ? 'rpt-sel-chip rpt-sel-chip-on' : 'rpt-sel-chip',
-            can_focus: true,
-        });
+        const b = new St.Button({ label: String(y), can_focus: true,
+            style_class: y === rd.year ? 'rpt-sel-chip rpt-sel-chip-on' : 'rpt-sel-chip' });
         b.connect('clicked', () => onMonthChange(y, rd.month));
         yearRow.add_child(b);
     }
     right.add_child(yearRow);
 
-    // Month row
     const monthRow = new St.BoxLayout({ style_class: 'rpt-sel-row' });
     monthRow.add_child(new St.Label({ text: 'MONTH', style_class: 'rpt-sel-label' }));
     MONTHS_SHORT.forEach((m, i) => {
-        const b = new St.Button({
-            label: m,
-            style_class: i === rd.month ? 'rpt-sel-chip rpt-sel-chip-on' : 'rpt-sel-chip',
-            can_focus: true,
-        });
+        const b = new St.Button({ label: m, can_focus: true,
+            style_class: i === rd.month ? 'rpt-sel-chip rpt-sel-chip-on' : 'rpt-sel-chip' });
         b.connect('clicked', () => onMonthChange(rd.year, i));
         monthRow.add_child(b);
     });
     right.add_child(monthRow);
-
     box.add_child(right);
     return box;
 }
 
-// ── 2. Trend + ring ───────────────────────────────────────────────────────────
+// ── 2. Trend row ──────────────────────────────────────────────────────────────
 
-function buildTrendRow(rd) {
-    const row = new St.BoxLayout({ x_expand: true, style_class: 'rpt-trend-row' });
+function buildTrendRow(rd, innerW) {
+    const row = new St.BoxLayout({ x_expand: true, style_class: 'rpt-section' });
 
-    // Left: sparkline + axis labels
-    const chartBox = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-chart-box' });
-    chartBox.add_child(new St.Label({ text: 'MONTHLY PROGRESS', style_class: 'rpt-section-header' }));
-
-    const pcts = rd.days.map(d => d.pct);
-    const sparkline = makeTrendLine(pcts, 280, 60);
-    chartBox.add_child(sparkline);
-
-    // X-axis day labels (every 5th)
-    const xAxis = new St.BoxLayout({ x_expand: true });
-    const n = pcts.length;
-    const stepX = n > 1 ? 280 / (n - 1) : 0;
+    // Sparkline (takes ~70% of width)
+    const chartW = Math.floor(innerW * 0.68);
+    const chartBox = new St.BoxLayout({ vertical: true, width: chartW });
+    chartBox.add_child(sectionHdr('MONTHLY PROGRESS'));
+    chartBox.add_child(sparkline(rd.days.map(d => d.pct), chartW - 8, 72));
+    // X-axis labels
+    const xRow = new St.BoxLayout({ width: chartW - 8 });
     rd.days.forEach((d, i) => {
-        if (d.day === 1 || d.day % 5 === 0 || i === n - 1) {
+        if (d.day === 1 || d.day % 5 === 0 || i === rd.days.length - 1) {
             const lbl = new St.Label({ text: String(d.day), style_class: 'rpt-axis-label' });
-            lbl.set_position(Math.round(i * stepX), 0);
-            xAxis.add_child(lbl);
+            lbl.set_position(Math.round(i * (chartW - 14) / (rd.days.length - 1 || 1)), 0);
+            xRow.add_child(lbl);
         }
     });
-    chartBox.add_child(xAxis);
+    chartBox.add_child(xRow);
     row.add_child(chartBox);
 
-    // Right: ring/donut indicator
-    const ringBox = new St.BoxLayout({ vertical: true, style_class: 'rpt-ring-section' });
-    ringBox.add_child(new St.Label({ text: 'MONTHLY OVERVIEW', style_class: 'rpt-section-header' }));
-    ringBox.add_child(makeRingIndicator(rd.monthPct));
+    // Spacer
+    row.add_child(new St.Widget({ width: 16 }));
 
-    // Completed / Left labels
-    const statsRow = new St.BoxLayout({ style_class: 'rpt-ring-stats' });
-    const doneBox = new St.BoxLayout({ vertical: true });
-    doneBox.add_child(new St.Label({ text: `${rd.monthDone}`, style_class: 'rpt-ring-count-done' }));
-    doneBox.add_child(new St.Label({ text: 'completed', style_class: 'rpt-ring-stat-lbl' }));
-    statsRow.add_child(doneBox);
-    const leftBox = new St.BoxLayout({ vertical: true });
-    leftBox.add_child(new St.Label({ text: `${rd.monthGoal - rd.monthDone}`, style_class: 'rpt-ring-count-left' }));
-    leftBox.add_child(new St.Label({ text: 'left', style_class: 'rpt-ring-stat-lbl' }));
-    statsRow.add_child(leftBox);
+    // Ring / donut (~30% of width)
+    const ringW = innerW - chartW - 16;
+    const ringBox = new St.BoxLayout({ vertical: true, width: ringW, style_class: 'rpt-ring-section' });
+    ringBox.add_child(sectionHdr('MONTHLY OVERVIEW'));
+
+    const pctLbl = new St.Label({ text: `${rd.monthPct}%`, style_class: 'rpt-ring-pct',
+        x_align: Clutter.ActorAlign.CENTER, x_expand: true });
+    ringBox.add_child(pctLbl);
+    ringBox.add_child(new St.Label({ text: 'complete', style_class: 'rpt-ring-sub',
+        x_align: Clutter.ActorAlign.CENTER, x_expand: true }));
+    ringBox.add_child(progressBar(rd.monthPct, ringW - 16, 'rpt-ring-bar-bg', 'rpt-ring-bar-fg', 8));
+
+    const statsRow = new St.BoxLayout({ x_expand: true });
+    const mkStat = (val, lbl, cls) => {
+        const b = new St.BoxLayout({ vertical: true, x_expand: true });
+        b.add_child(new St.Label({ text: String(val), style_class: cls,
+            x_align: Clutter.ActorAlign.CENTER, x_expand: true }));
+        b.add_child(new St.Label({ text: lbl, style_class: 'rpt-ring-stat-lbl',
+            x_align: Clutter.ActorAlign.CENTER, x_expand: true }));
+        return b;
+    };
+    statsRow.add_child(mkStat(rd.monthDone, 'done', 'rpt-ring-count-done'));
+    statsRow.add_child(mkStat(rd.monthGoal - rd.monthDone, 'left', 'rpt-ring-count-left'));
     ringBox.add_child(statsRow);
 
     row.add_child(ringBox);
     return row;
 }
 
-// ── 3. Weekly overview ────────────────────────────────────────────────────────
+// ── 3. Weekly overview — FULL WIDTH ──────────────────────────────────────────
 
-function buildWeeklyOverview(rd, barScale) {
-    const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
-    container.add_child(sectionHeader('WEEKLY OVERVIEW'));
+function buildWeeklyOverview(rd, innerW) {
+    const section = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
+    section.add_child(sectionHdr('WEEKLY OVERVIEW'));
+    section.add_child(divider());
 
-    const weeksRow = new St.BoxLayout({ x_expand: true });
+    const LABEL_W = 88;
+    const nWeeks  = rd.weeks.length;
+    // Each week column gets equal share of remaining width
+    const colW    = Math.floor((innerW - LABEL_W - 8) / Math.max(nWeeks, 1));
+    // Cell width within each week: fit 7 bars in colW with 2px gap
+    const cellW   = Math.max(8, Math.floor((colW - 4) / 7));
+
+    const body = new St.BoxLayout({ x_expand: true });
 
     // Label column
-    const lblCol = new St.BoxLayout({ vertical: true, style_class: 'rpt-week-labels' });
-    lblCol.add_child(new St.Label({ text: ' ', style_class: 'rpt-week-spacer' })); // bar spacer
-    lblCol.add_child(new St.Label({ text: ' ', style_class: 'rpt-week-spacer' })); // day nums spacer
-    ['Completed','Goal','Left','Progress'].forEach(t =>
+    const lblCol = new St.BoxLayout({ vertical: true, width: LABEL_W, style_class: 'rpt-week-labels' });
+    // Spacer height = bar chart height (52) + day-row height (18) + week header (22)
+    lblCol.add_child(new St.Widget({ height: 92 }));
+    ['Completed', 'Goal', 'Left', 'Progress'].forEach(t =>
         lblCol.add_child(new St.Label({ text: t, style_class: 'rpt-row-label' }))
     );
-    weeksRow.add_child(lblCol);
+    body.add_child(lblCol);
 
-    const maxDayDone = Math.max(...rd.days.map(d => d.completed), 1);
+    const maxDayDone = Math.max(...rd.days.map(d => d.done), 1);
 
     rd.weeks.forEach((week, wi) => {
-        const wDone = week.reduce((s, d) => s + d.completed, 0);
+        const wDone = week.reduce((s, d) => s + d.done, 0);
         const wGoal = week.reduce((s, d) => s + d.goal, 0);
         const wPct  = wGoal > 0 ? Math.round(wDone / wGoal * 100) : 0;
 
-        const col = new St.BoxLayout({ vertical: true, style_class: 'rpt-week-col' });
+        const col = new St.BoxLayout({ vertical: true, width: colW, style_class: 'rpt-week-col' });
 
-        // Week label
-        col.add_child(new St.Label({ text: `Week ${wi + 1}`, style_class: 'rpt-week-num' }));
+        // Week header
+        col.add_child(new St.Label({ text: `Week ${wi + 1}`, style_class: 'rpt-week-num',
+            x_align: Clutter.ActorAlign.CENTER, width: colW }));
 
-        // Mini bar chart
-        const vals = week.map(d => d.completed);
-        const barsW = week.length * 12;
-        col.add_child(makeBarChart(vals, maxDayDone, barsW, 40,
-            (_i, v) => v > 0 ? 'rpt-bar-fill' : 'rpt-bar-empty'));
+        // Bar chart (height 52)
+        col.add_child(barChart(week.map(d => d.done), maxDayDone, cellW, 52));
 
-        // Day numbers
-        const dayNumRow = new St.BoxLayout({});
-        week.forEach(d => {
-            dayNumRow.add_child(new St.Label({
-                text: String(d.day),
-                style_class: 'rpt-day-num',
-                width: 12,
-                x_align: Clutter.ActorAlign.CENTER,
-            }));
-        });
-        col.add_child(dayNumRow);
+        // Day numbers row
+        const dayRow = new St.BoxLayout({ width: colW });
+        week.forEach(d => dayRow.add_child(new St.Label({
+            text: String(d.day), style_class: 'rpt-day-num',
+            width: cellW, x_align: Clutter.ActorAlign.CENTER,
+        })));
+        col.add_child(dayRow);
 
         // Stat rows
-        [
-            { val: wDone, cls: 'rpt-stat-val rpt-stat-done' },
-            { val: wGoal, cls: 'rpt-stat-val' },
-            { val: Math.max(0, wGoal - wDone), cls: 'rpt-stat-val rpt-stat-left' },
-        ].forEach(({ val, cls }) =>
-            col.add_child(new St.Label({ text: String(val), style_class: cls }))
-        );
+        [{ v: wDone, c: 'rpt-stat-done' }, { v: wGoal, c: '' }, { v: Math.max(0,wGoal-wDone), c: 'rpt-stat-left' }]
+            .forEach(({ v, c }) => col.add_child(new St.Label({
+                text: String(v), style_class: `rpt-stat-val ${c}`.trim(),
+                x_align: Clutter.ActorAlign.CENTER, width: colW,
+            })));
 
-        // Progress fraction + bar
-        const prog = new St.BoxLayout({ vertical: true });
-        prog.add_child(new St.Label({
-            text: `${wDone}/${wGoal}  ${wPct}%`,
-            style_class: 'rpt-prog-frac',
-        }));
-        const barBg = new St.BoxLayout({ style_class: 'rpt-prog-bar-bg', height: 5 });
-        if (wPct > 0) {
-            const barFg = new St.Widget({
-                style_class: 'rpt-prog-bar-fg',
-                height: 5,
-                style: `width: ${Math.max(4, Math.round(wPct * barScale / 10))}px;`,
-            });
-            barBg.add_child(barFg);
-        }
-        prog.add_child(barBg);
-        col.add_child(prog);
+        // Progress
+        col.add_child(new St.Label({ text: `${wDone}/${wGoal} · ${wPct}%`, style_class: 'rpt-prog-frac',
+            x_align: Clutter.ActorAlign.CENTER, width: colW }));
+        col.add_child(progressBar(wPct, colW - 4, 'rpt-prog-bar-bg', 'rpt-prog-bar-fg', 5));
 
-        weeksRow.add_child(col);
+        body.add_child(col);
     });
 
-    container.add_child(weeksRow);
-    return container;
+    section.add_child(body);
+    return section;
 }
 
-// ── 4. Daily habit matrix ─────────────────────────────────────────────────────
+// ── 4. Habit matrix ───────────────────────────────────────────────────────────
 
 function buildHabitMatrix(rd) {
-    const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
-    container.add_child(sectionHeader('DAILY HABITS'));
+    const section = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
+    section.add_child(sectionHdr('DAILY HABITS'));
+    section.add_child(divider());
 
-    const CELL   = 18;
-    const LABEL  = 130;
-    const GOAL_W = 32;
+    const CELL   = 20;
+    const LABEL  = 140;
+    const GOAL_W = 36;
 
     const scroll = new St.ScrollView({
         x_expand: true,
@@ -435,34 +324,22 @@ function buildHabitMatrix(rd) {
 
     const grid = new St.BoxLayout({ vertical: true });
 
-    // ── Column headers ──
+    // Column header
     const colHdr = new St.BoxLayout({});
     colHdr.add_child(new St.Widget({ width: LABEL }));
     colHdr.add_child(new St.Label({ text: 'Goal', style_class: 'rpt-matrix-goal-hdr', width: GOAL_W }));
 
     rd.weeks.forEach((week, wi) => {
         const wHdr = new St.BoxLayout({ vertical: true });
-        wHdr.add_child(new St.Label({
-            text: `Wk ${wi + 1}`,
-            style_class: 'rpt-matrix-week-label',
-            width: week.length * CELL,
-            x_align: Clutter.ActorAlign.CENTER,
-        }));
+        wHdr.add_child(new St.Label({ text: `Wk ${wi+1}`, style_class: 'rpt-matrix-week-label',
+            width: week.length * CELL, x_align: Clutter.ActorAlign.CENTER }));
         const dayRow = new St.BoxLayout({});
         week.forEach(d => {
             const cell = new St.BoxLayout({ vertical: true, width: CELL });
-            cell.add_child(new St.Label({
-                text: DAYS_SHORT[d.dow].slice(0,2),
-                style_class: 'rpt-matrix-dow',
-                width: CELL,
-                x_align: Clutter.ActorAlign.CENTER,
-            }));
-            cell.add_child(new St.Label({
-                text: String(d.day),
-                style_class: 'rpt-matrix-daynum',
-                width: CELL,
-                x_align: Clutter.ActorAlign.CENTER,
-            }));
+            cell.add_child(new St.Label({ text: DAYS_SHORT[d.dow].slice(0,2),
+                style_class: 'rpt-matrix-dow', width: CELL, x_align: Clutter.ActorAlign.CENTER }));
+            cell.add_child(new St.Label({ text: String(d.day),
+                style_class: 'rpt-matrix-daynum', width: CELL, x_align: Clutter.ActorAlign.CENTER }));
             dayRow.add_child(cell);
         });
         wHdr.add_child(dayRow);
@@ -470,82 +347,73 @@ function buildHabitMatrix(rd) {
     });
     grid.add_child(colHdr);
 
-    // ── Habit rows ──
     rd.habitStats.forEach(hs => {
         const row = new St.BoxLayout({ style_class: 'rpt-matrix-row' });
-
-        const name = new St.Label({
-            text: hs.task.title,
-            style_class: 'rpt-matrix-name',
-            width: LABEL,
-        });
+        const name = new St.Label({ text: hs.task.title, style_class: 'rpt-matrix-name', width: LABEL });
         name.clutter_text.ellipsize = 3;
         row.add_child(name);
-
-        row.add_child(new St.Label({
-            text: String(hs.goal),
-            style_class: 'rpt-matrix-goal',
-            width: GOAL_W,
-            x_align: Clutter.ActorAlign.CENTER,
-        }));
+        row.add_child(new St.Label({ text: String(hs.goal), style_class: 'rpt-matrix-goal',
+            width: GOAL_W, x_align: Clutter.ActorAlign.CENTER }));
 
         rd.weeks.forEach((week, wi) => {
             const wCells = new St.BoxLayout({});
             week.forEach((d, di) => {
-                const dayIdx = wi * 7 + di;
-                const status = rd.cellCompleted(hs.task.id, dayIdx);
-                const cls = status === null ? 'rpt-cell rpt-cell-na'
-                          : status          ? 'rpt-cell rpt-cell-done'
-                          :                   'rpt-cell rpt-cell-empty';
-                wCells.add_child(new St.Widget({ width: CELL, height: CELL, style_class: cls }));
+                const s = rd.cellCompleted(hs.task.id, wi * 7 + di);
+                wCells.add_child(new St.Widget({ width: CELL, height: CELL,
+                    style_class: s === null ? 'rpt-cell rpt-cell-na'
+                               : s          ? 'rpt-cell rpt-cell-done'
+                               :              'rpt-cell rpt-cell-empty' }));
             });
             row.add_child(wCells);
         });
-
         grid.add_child(row);
     });
 
     const holder = new St.BoxLayout({ x_expand: true });
     holder.add_child(grid);
     scroll.child = holder;
-    container.add_child(scroll);
-    return container;
+    section.add_child(scroll);
+    return section;
 }
 
 // ── 5. Top 10 ─────────────────────────────────────────────────────────────────
 
 function buildTop10(rd) {
-    const container = new St.BoxLayout({ vertical: true, style_class: 'rpt-section' });
-    container.add_child(sectionHeader('TOP 10 HABITS'));
+    const section = new St.BoxLayout({ vertical: true, style_class: 'rpt-section' });
+    section.add_child(sectionHdr('TOP 10 HABITS'));
+    section.add_child(divider());
 
-    if (rd.top10.length === 0) {
-        container.add_child(new St.Label({ text: 'No data this month.', style_class: 'rpt-empty' }));
-        return container;
+    if (!rd.top10.length) {
+        section.add_child(new St.Label({ text: 'No data this month.', style_class: 'rpt-empty' }));
+        return section;
     }
 
     rd.top10.forEach((hs, i) => {
         const row = new St.BoxLayout({ x_expand: true, style_class: 'rpt-top-row' });
-        row.add_child(new St.Label({ text: `${i+1}`, style_class: 'rpt-top-rank', width: 18 }));
+        row.add_child(new St.Label({ text: String(i+1), style_class: 'rpt-top-rank', width: 22 }));
         const name = new St.Label({ text: hs.task.title, style_class: 'rpt-top-name', x_expand: true });
         name.clutter_text.ellipsize = 3;
         row.add_child(name);
         row.add_child(new St.Label({ text: String(hs.done), style_class: 'rpt-top-count' }));
         row.add_child(new St.Label({ text: `${hs.pct}%`, style_class: 'rpt-top-pct' }));
-        container.add_child(row);
+        section.add_child(row);
     });
-    return container;
+    return section;
 }
 
 // ── 6. Overall progress ───────────────────────────────────────────────────────
 
-function buildOverallProgress(rd, barScale) {
-    const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
-    container.add_child(sectionHeader('OVERALL PROGRESS'));
+function buildOverallProgress(rd, innerW) {
+    const section = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
+    section.add_child(sectionHdr('OVERALL PROGRESS'));
+    section.add_child(divider());
 
-    if (rd.habitStats.length === 0) {
-        container.add_child(new St.Label({ text: 'No habits defined.', style_class: 'rpt-empty' }));
-        return container;
+    if (!rd.habitStats.length) {
+        section.add_child(new St.Label({ text: 'No habits defined.', style_class: 'rpt-empty' }));
+        return section;
     }
+
+    const barW = innerW - 32; // label + frac + pct take ~32px less
 
     rd.habitStats.forEach(hs => {
         const row = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-overall-row' });
@@ -557,21 +425,11 @@ function buildOverallProgress(rd, barScale) {
         top.add_child(new St.Label({ text: `${hs.done}/${hs.goal}`, style_class: 'rpt-overall-frac' }));
         top.add_child(new St.Label({ text: `${hs.pct}%`, style_class: 'rpt-overall-pct' }));
         row.add_child(top);
-
-        const barBg = new St.BoxLayout({ style_class: 'rpt-overall-bar-bg', x_expand: true, height: 4 });
-        if (hs.pct > 0) {
-            const barFg = new St.Widget({
-                style_class: 'rpt-overall-bar-fg',
-                height: 4,
-                style: `width: ${Math.max(4, Math.round(hs.pct * barScale / 10))}px;`,
-            });
-            barBg.add_child(barFg);
-        }
-        row.add_child(barBg);
-        container.add_child(row);
+        row.add_child(progressBar(hs.pct, barW, 'rpt-overall-bar-bg', 'rpt-overall-bar-fg', 5));
+        section.add_child(row);
     });
 
-    return container;
+    return section;
 }
 
 // ── ReportDashboard ───────────────────────────────────────────────────────────
@@ -580,14 +438,11 @@ export const ReportDashboard = GObject.registerClass(
 class ReportDashboard extends St.BoxLayout {
     _init(storage, width) {
         super._init({ style_class: 'rpt-dashboard', vertical: true, x_expand: true, y_expand: true });
-
         this._storage = storage;
-        // Usable inner width = popover width − outer padding (14px each side) − scroll margin
-        this._innerW = Math.max(400, (width || 1100) - 32);
+        this._innerW  = Math.max(500, (width || 1200) - 40);
         const now = new Date();
         this._year  = now.getFullYear();
         this._month = now.getMonth();
-
         this._build();
     }
 
@@ -595,12 +450,11 @@ class ReportDashboard extends St.BoxLayout {
         this.destroy_all_children();
 
         const rd = new ReportData(this._storage, this._year, this._month);
-        // Scale for progress bars: 1% = this many px, clamped so bars never exceed inner width
-        const barScale = Math.floor(this._innerW / 120); // ~8px per % at 1100px inner
+
+        const onMonthChange = (y, m) => { this._year = y; this._month = m; this._build(); };
 
         const scroll = new St.ScrollView({
-            x_expand: true,
-            y_expand: true,
+            x_expand: true, y_expand: true,
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
             overlay_scrollbars: true,
@@ -608,28 +462,26 @@ class ReportDashboard extends St.BoxLayout {
 
         const inner = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-inner' });
 
-        const onMonthChange = (y, m) => {
-            this._year  = y;
-            this._month = m;
-            this._build();
-        };
-
         inner.add_child(buildHeader(rd, onMonthChange));
-        inner.add_child(buildTrendRow(rd));
-        inner.add_child(buildWeeklyOverview(rd, barScale));
+        inner.add_child(buildTrendRow(rd, this._innerW));
+        inner.add_child(buildWeeklyOverview(rd, this._innerW));
 
-        // Mid row: matrix + top10 side by side
-        const midRow = new St.BoxLayout({ x_expand: true, style_class: 'rpt-mid-row' });
-        const matrixWrap = new St.BoxLayout({ vertical: true, x_expand: true });
+        // Mid row: habit matrix (left) + top10 (right)
+        const midRow = new St.BoxLayout({ x_expand: true });
+        const matrixW = Math.floor(this._innerW * 0.70);
+        const top10W  = this._innerW - matrixW - 16;
+
+        const matrixWrap = new St.BoxLayout({ vertical: true, width: matrixW });
         matrixWrap.add_child(buildHabitMatrix(rd));
         midRow.add_child(matrixWrap);
+        midRow.add_child(new St.Widget({ width: 16 }));
 
-        const top10Wrap = new St.BoxLayout({ vertical: true, style_class: 'rpt-top10-wrap' });
+        const top10Wrap = new St.BoxLayout({ vertical: true, width: top10W, style_class: 'rpt-top10-wrap' });
         top10Wrap.add_child(buildTop10(rd));
         midRow.add_child(top10Wrap);
         inner.add_child(midRow);
 
-        inner.add_child(buildOverallProgress(rd, barScale));
+        inner.add_child(buildOverallProgress(rd, this._innerW));
 
         scroll.child = inner;
         this.add_child(scroll);
