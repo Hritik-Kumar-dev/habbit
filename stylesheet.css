@@ -367,21 +367,28 @@
     color: #A0A4AD;
 }
 
-/* Repeat every-day toggle */
+/* Repeat every-day toggle — ON / OFF text pill */
 .pulse-toggle {
-    width: 36px;
-    height: 20px;
-    min-width: 36px;
-    min-height: 20px;
-    border-radius: 10px;
-    background-color: #2A2E38;
-    border: 1px solid #3A3E48;
-    padding: 0;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: bold;
+    color: #5A5E68;
+    background-color: #20232A;
+    border: 1px solid #2A2E38;
+    min-width: 44px;
+    text-align: center;
+}
+
+.pulse-toggle:hover {
+    border-color: #4B9EFF;
+    color: #A0A4AD;
 }
 
 .pulse-toggle-on {
-    background-color: #4B9EFF;
-    border-color: #4B9EFF;
+    background-color: rgba(75, 158, 255, 0.18);
+    border-color: rgba(75, 158, 255, 0.5);
+    color: #4B9EFF;
 }
 
 /* Day chips */
@@ -876,7 +883,6 @@
 
 .rpt-inner {
     padding: 12px;
-    spacing: 12px;
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
@@ -884,7 +890,6 @@
 .rpt-header-row {
     padding-bottom: 10px;
     border-bottom: 1px solid #2A2E38;
-    spacing: 8px;
 }
 
 .rpt-header-left {
@@ -905,11 +910,9 @@
 
 /* Year/month selector chips */
 .rpt-selectors {
-    spacing: 6px;
 }
 
 .rpt-sel-row {
-    spacing: 4px;
 }
 
 .rpt-sel-label {
@@ -1046,7 +1049,6 @@
 /* ── Section headers ─────────────────────────────────────────────────────── */
 
 .rpt-section {
-    spacing: 6px;
     padding-top: 4px;
 }
 
@@ -1062,7 +1064,6 @@
 /* ── Weekly overview ─────────────────────────────────────────────────────── */
 
 .rpt-week-labels {
-    spacing: 2px;
     min-width: 68px;
     padding-top: 18px;
 }
@@ -1090,7 +1091,6 @@
 }
 
 .rpt-week-col {
-    spacing: 2px;
     padding: 0 2px;
 }
 
@@ -1122,7 +1122,6 @@
 }
 
 .rpt-prog-box {
-    spacing: 2px;
     padding-top: 2px;
 }
 
@@ -1144,11 +1143,9 @@
 /* ── Habit matrix ────────────────────────────────────────────────────────── */
 
 .rpt-mid-row {
-    spacing: 12px;
 }
 
 .rpt-matrix-week-hdr {
-    spacing: 0px;
 }
 
 .rpt-matrix-week-label {
@@ -1168,7 +1165,6 @@
 }
 
 .rpt-matrix-day-col {
-    spacing: 0px;
 }
 
 .rpt-matrix-dow {
@@ -1184,7 +1180,6 @@
 }
 
 .rpt-matrix-row {
-    spacing: 0px;
     padding: 1px 0;
 }
 
@@ -1228,7 +1223,6 @@
 .rpt-top-row {
     padding: 3px 0;
     border-bottom: 1px solid rgba(42, 46, 56, 0.5);
-    spacing: 6px;
 }
 
 .rpt-top-rank {
@@ -1259,7 +1253,6 @@
 /* ── Overall progress ────────────────────────────────────────────────────── */
 
 .rpt-overall-row {
-    spacing: 3px;
     padding: 5px 0;
     border-bottom: 1px solid rgba(42, 46, 56, 0.5);
 }

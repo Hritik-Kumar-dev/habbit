@@ -236,9 +236,12 @@ class AddHabitForm extends St.BoxLayout {
         });
         const isDaily = !prefill || prefill.repeat === 'daily' || !prefill.repeat;
         this._dailyToggle.checked = isDaily;
+        this._dailyToggle.label = isDaily ? 'ON' : 'OFF';
         this._dailyToggle.style_class = isDaily ? 'pulse-toggle pulse-toggle-on' : 'pulse-toggle';
         this._dailyToggle.connect('clicked', () => {
-            this._dailyToggle.style_class = this._dailyToggle.checked
+            const on = this._dailyToggle.checked;
+            this._dailyToggle.label = on ? 'ON' : 'OFF';
+            this._dailyToggle.style_class = on
                 ? 'pulse-toggle pulse-toggle-on'
                 : 'pulse-toggle';
             this._updateWeekdayChips();

@@ -195,7 +195,6 @@ function makeTrendLine(pcts, w, h) {
 function makeRingIndicator(pct) {
     const box = new St.BoxLayout({ vertical: true, style_class: 'rpt-ring-box' });
 
-    // Percentage text
     const pctLbl = new St.Label({
         text: `${pct}%`,
         style_class: 'rpt-ring-pct',
@@ -212,11 +211,17 @@ function makeRingIndicator(pct) {
     });
     box.add_child(subLbl);
 
-    // Progress bar
+    // Progress bar — x_expand so it fills whatever container it's in
     const barBg = new St.BoxLayout({ style_class: 'rpt-ring-bar-bg', x_expand: true, height: 8 });
-    const barFg = new St.Widget({ style_class: 'rpt-ring-bar-fg', height: 8 });
-    barFg.set_style(`width: ${Math.round(pct)}px;`);
-    barBg.add_child(barFg);
+    if (pct > 0) {
+        const barFg = new St.Widget({
+            style_class: 'rpt-ring-bar-fg',
+            height: 8,
+            // Proportional width via inline style — capped at 200px (ring section is ~180px wide)
+            style: `width: ${Math.min(200, Math.max(4, Math.round(pct * 1.8)))}px;`,
+        });
+        barBg.add_child(barFg);
+    }
     box.add_child(barBg);
 
     return box;
@@ -332,7 +337,7 @@ function buildTrendRow(rd) {
 
 // ── 3. Weekly overview ────────────────────────────────────────────────────────
 
-function buildWeeklyOverview(rd) {
+function buildWeeklyOverview(rd, barScale) {
     const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
     container.add_child(sectionHeader('WEEKLY OVERVIEW'));
 
@@ -397,7 +402,7 @@ function buildWeeklyOverview(rd) {
             const barFg = new St.Widget({
                 style_class: 'rpt-prog-bar-fg',
                 height: 5,
-                style: `width: ${Math.max(4, Math.round(wPct / 100 * week.length * 12))}px;`,
+                style: `width: ${Math.max(4, Math.round(wPct * barScale / 10))}px;`,
             });
             barBg.add_child(barFg);
         }
@@ -533,7 +538,7 @@ function buildTop10(rd) {
 
 // ── 6. Overall progress ───────────────────────────────────────────────────────
 
-function buildOverallProgress(rd) {
+function buildOverallProgress(rd, barScale) {
     const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'rpt-section' });
     container.add_child(sectionHeader('OVERALL PROGRESS'));
 
@@ -558,7 +563,7 @@ function buildOverallProgress(rd) {
             const barFg = new St.Widget({
                 style_class: 'rpt-overall-bar-fg',
                 height: 4,
-                style: `width: ${Math.max(4, Math.round(hs.pct * 2))}px;`,
+                style: `width: ${Math.max(4, Math.round(hs.pct * barScale / 10))}px;`,
             });
             barBg.add_child(barFg);
         }
@@ -573,10 +578,12 @@ function buildOverallProgress(rd) {
 
 export const ReportDashboard = GObject.registerClass(
 class ReportDashboard extends St.BoxLayout {
-    _init(storage, _width) {
+    _init(storage, width) {
         super._init({ style_class: 'rpt-dashboard', vertical: true, x_expand: true, y_expand: true });
 
         this._storage = storage;
+        // Usable inner width = popover width − outer padding (14px each side) − scroll margin
+        this._innerW = Math.max(400, (width || 1100) - 32);
         const now = new Date();
         this._year  = now.getFullYear();
         this._month = now.getMonth();
@@ -588,6 +595,8 @@ class ReportDashboard extends St.BoxLayout {
         this.destroy_all_children();
 
         const rd = new ReportData(this._storage, this._year, this._month);
+        // Scale for progress bars: 1% = this many px, clamped so bars never exceed inner width
+        const barScale = Math.floor(this._innerW / 120); // ~8px per % at 1100px inner
 
         const scroll = new St.ScrollView({
             x_expand: true,
@@ -607,7 +616,7 @@ class ReportDashboard extends St.BoxLayout {
 
         inner.add_child(buildHeader(rd, onMonthChange));
         inner.add_child(buildTrendRow(rd));
-        inner.add_child(buildWeeklyOverview(rd));
+        inner.add_child(buildWeeklyOverview(rd, barScale));
 
         // Mid row: matrix + top10 side by side
         const midRow = new St.BoxLayout({ x_expand: true, style_class: 'rpt-mid-row' });
@@ -620,7 +629,7 @@ class ReportDashboard extends St.BoxLayout {
         midRow.add_child(top10Wrap);
         inner.add_child(midRow);
 
-        inner.add_child(buildOverallProgress(rd));
+        inner.add_child(buildOverallProgress(rd, barScale));
 
         scroll.child = inner;
         this.add_child(scroll);

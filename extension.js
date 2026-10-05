@@ -36,8 +36,8 @@ import { TaskManager } from './src/taskManager.js';
 import { PulsePopover } from './src/pulsePopover.js';
 
 // Popover widths
-const POPOVER_WIDTH_MAIN   = 640;   // main + settings views
-const POPOVER_WIDTH_REPORT = 900;   // report view (wider for matrix + charts)
+const POPOVER_WIDTH_MAIN   = 640;    // main + settings views
+const POPOVER_WIDTH_REPORT = 1100;   // report view (wider for matrix + charts)
 
 // ── PulseIndicator ─────────────────────────────────────────────────────────────
 
