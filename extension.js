@@ -35,8 +35,9 @@ import { Storage } from './src/storage.js';
 import { TaskManager } from './src/taskManager.js';
 import { PulsePopover } from './src/pulsePopover.js';
 
-// Popover width — clamped to 92% of screen width at runtime
-const POPOVER_WIDTH = 480;
+// Popover widths
+const POPOVER_WIDTH_MAIN   = 640;   // main + settings views
+const POPOVER_WIDTH_REPORT = 900;   // report view (wider for matrix + charts)
 
 // ── PulseIndicator ─────────────────────────────────────────────────────────────
 
@@ -84,16 +85,22 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     _buildPopover() {
-        // Compute width: min(POPOVER_WIDTH, 92% of primary monitor)
         const monitor = Main.layoutManager.primaryMonitor;
-        const maxW = monitor ? Math.floor(monitor.width * 0.92) : POPOVER_WIDTH;
-        const w = Math.min(POPOVER_WIDTH, maxW);
+        const screenW = monitor ? monitor.width : 1920;
+        const maxMain   = Math.floor(screenW * 0.92);
+        const maxReport = Math.floor(screenW * 0.95);
 
-        this._popover = new PulsePopover(this._taskManager, this._extensionPath, w);
+        this._mainW   = Math.min(POPOVER_WIDTH_MAIN,   maxMain);
+        this._reportW = Math.min(POPOVER_WIDTH_REPORT, maxReport);
+
+        this._popover = new PulsePopover(
+            this._taskManager,
+            this._extensionPath,
+            this._mainW,
+            this._reportW,
+        );
         this.menu.box.add_child(this._popover);
-
-        // Style the menu box so it doesn't add extra padding around our popover
-        this.menu.box.set_style('padding: 0; margin: 0;');
+        this.menu.box.set_style(`padding: 0; margin: 0; min-width: ${this._mainW}px;`);
     }
 
     _updateLabel() {

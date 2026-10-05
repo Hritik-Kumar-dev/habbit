@@ -770,15 +770,17 @@ class MainView extends St.BoxLayout {
 
 export const PulsePopover = GObject.registerClass(
 class PulsePopover extends St.BoxLayout {
-    _init(taskManager, _extensionPath, width) {
+    _init(taskManager, _extensionPath, mainWidth, reportWidth) {
         super._init({
             style_class: 'pulse-popover',
             vertical: true,
-            width,
+            width: mainWidth,
         });
 
         this._taskManager = taskManager;
-        this._width       = width;
+        this._mainWidth   = mainWidth;
+        this._reportWidth = reportWidth || mainWidth;
+        this._width       = mainWidth;   // current active width
         this._currentView = 'main';
 
         this._buildHeader();
@@ -884,6 +886,17 @@ class PulsePopover extends St.BoxLayout {
     _switchView(view) {
         if (view === this._currentView) return;
         this._currentView = view;
+
+        // Expand width for report, shrink back for main/settings
+        const newWidth = (view === 'report') ? this._reportWidth : this._mainWidth;
+        if (newWidth !== this._width) {
+            this._width = newWidth;
+            this.set_width(newWidth);
+            const menuBox = this.get_parent();
+            if (menuBox)
+                menuBox.set_style(`padding: 0; margin: 0; min-width: ${newWidth}px;`);
+        }
+
         this._body.destroy_all_children();
         if (view === 'main')     this._showMainView();
         if (view === 'settings') this._showSettingsView();
@@ -892,7 +905,7 @@ class PulsePopover extends St.BoxLayout {
 
     _showMainView() {
         this._currentView = 'main';
-        this._mainView = new MainView(this._taskManager, this._width);
+        this._mainView = new MainView(this._taskManager, this._mainWidth);
         this._mainView.x_expand = true;
         this._mainView.y_expand = true;
         this._body.add_child(this._mainView);
