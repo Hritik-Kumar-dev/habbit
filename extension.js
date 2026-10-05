@@ -233,7 +233,9 @@ export default class PulseExtension extends Extension {
 
     _onDataFileChanged() {
         if (!this._storage || !this._taskManager) return;
-        console.log('[PULSE] Data file changed — reloading.');
+        console.log('[PULSE] Data file changed \u2014 reloading.');
+        // Only reload data + notify UI.
+        // Do NOT call rolloverDay: it calls save() which re-triggers the monitor.
         this._storage.load();
         this._taskManager.emit('tasks-changed');
     }

@@ -932,11 +932,11 @@ class PulsePopover extends St.BoxLayout {
         // Data change → refresh only the main view (not on hover)
         this._changedId = taskManager.connect('tasks-changed', () => {
             this._updateHeader();
-            if (this._currentView === 'main') this._mainView.refresh();
+            if (this._currentView === 'main' && this._mainView) this._mainView.refresh();
         });
         this._rolledId = taskManager.connect('day-rolled-over', () => {
             this._updateHeader();
-            if (this._currentView === 'main') this._mainView.refresh();
+            if (this._currentView === 'main' && this._mainView) this._mainView.refresh();
         });
     }
 
