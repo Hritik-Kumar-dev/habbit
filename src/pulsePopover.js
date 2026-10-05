@@ -188,6 +188,14 @@ class TaskRow extends St.BoxLayout {
         });
     }
 
+    destroy() {
+        if (this._ctxMenu) {
+            this._ctxMenu.destroy();
+            this._ctxMenu = null;
+        }
+        super.destroy();
+    }
+
     _showCtxMenu(onEdit, onDelete) {
         if (this._ctxMenu) { this._ctxMenu.destroy(); this._ctxMenu = null; }
         this._ctxMenu = new St.BoxLayout({
@@ -347,10 +355,19 @@ class AddHabitForm extends St.BoxLayout {
             return Clutter.EVENT_PROPAGATE;
         });
 
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        this._focusIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            this._focusIdleId = null;
             this._nameEntry.grab_key_focus();
             return GLib.SOURCE_REMOVE;
         });
+    }
+
+    destroy() {
+        if (this._focusIdleId) {
+            GLib.source_remove(this._focusIdleId);
+            this._focusIdleId = null;
+        }
+        super.destroy();
     }
 
     _updateWeekdayChips() {
@@ -873,6 +890,18 @@ class MainView extends St.BoxLayout {
         this._editingTaskId  = null;
         if (this._activeForm) { this._activeForm.destroy(); this._activeForm = null; }
         this._addBtn.show();
+    }
+
+    destroy() {
+        if (this._changedId) {
+            this._taskManager.disconnect(this._changedId);
+            this._changedId = null;
+        }
+        if (this._rolledId) {
+            this._taskManager.disconnect(this._rolledId);
+            this._rolledId = null;
+        }
+        super.destroy();
     }
 });
 

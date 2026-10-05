@@ -192,20 +192,22 @@ export default class PulseExtension extends Extension {
         const file = Gio.File.new_for_path(dataPath);
 
         this._fileMonitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
-
-        // Debounce: ignore rapid successive writes (tmp rename causes two events)
         this._reloadTimer = null;
+        this._ownWrite = false;   // guard: true while WE are writing, ignore our own events
+
         this._fileMonitorId = this._fileMonitor.connect('changed',
             (_monitor, _file, _otherFile, eventType) => {
-                // CHANGES_DONE_HINT fires after the rename settles
                 if (eventType !== Gio.FileMonitorEvent.CHANGES_DONE_HINT &&
                     eventType !== Gio.FileMonitorEvent.CREATED) return;
+
+                // Ignore events caused by our own saves (prevents reload loop)
+                if (this._ownWrite) return;
 
                 if (this._reloadTimer) {
                     GLib.source_remove(this._reloadTimer);
                     this._reloadTimer = null;
                 }
-                this._reloadTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                this._reloadTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
                     this._reloadTimer = null;
                     this._onDataFileChanged();
                     return GLib.SOURCE_REMOVE;
@@ -233,7 +235,6 @@ export default class PulseExtension extends Extension {
         if (!this._storage || !this._taskManager) return;
         console.log('[PULSE] Data file changed — reloading.');
         this._storage.load();
-        this._storage.rolloverDay(new Date());
         this._taskManager.emit('tasks-changed');
     }
 }
