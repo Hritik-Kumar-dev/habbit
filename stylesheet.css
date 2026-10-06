@@ -1088,6 +1088,7 @@
     font-weight: bold;
     color: #4B9EFF;
     text-align: center;
+    x-align: center;
     padding-bottom: 4px;
 }
 
@@ -1096,12 +1097,14 @@
     color: #5A5E68;
     text-align: center;
     padding-top: 2px;
+    x-align: center;
 }
 
 .rpt-stat-val {
     font-size: 11px;
     color: #A0A4AD;
     text-align: center;
+    x-align: center;
     min-height: 18px;
     padding: 1px 0;
 }
@@ -1119,6 +1122,7 @@
     font-size: 10px;
     color: #A0A4AD;
     text-align: center;
+    x-align: center;
     padding: 2px 0;
 }
 
@@ -1161,12 +1165,14 @@
     font-size: 9px;
     color: #5A5E68;
     text-align: center;
+    x-align: center;
 }
 
 .rpt-matrix-daynum {
     font-size: 9px;
     color: #A0A4AD;
     text-align: center;
+    x-align: center;
 }
 
 .rpt-matrix-row {

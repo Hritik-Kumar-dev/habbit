@@ -170,11 +170,12 @@ export class Storage {
     getTasks() { return this._data.tasks; }
 
     addTask(def) {
+        const fromTime = def.from || def.time || '09:00';
         const task = {
             id: _genId(),
             title: def.title,
-            from: def.from || def.time || '09:00',
-            to:   def.to   || _addMinutes(def.from || def.time || '09:00', 30),
+            from: fromTime,
+            to:   def.to || _addMinutes(fromTime, 30),
             type: def.type || 'habit',
             repeat: def.repeat || 'daily',
             createdAt: new Date().toISOString(),
@@ -238,14 +239,14 @@ export class Storage {
             todayTasks.push({
                 taskId: task.id,
                 title: task.title,
-                from: task.from,
-                to:   task.to,
+                from: task.from || task.time || '00:00',
+                to:   task.to   || _addMinutes(task.from || task.time || '00:00', 30),
                 completed: prev.completed || false,
                 completedAt: prev.completedAt || null,
             });
         }
 
-        todayTasks.sort((a, b) => a.from.localeCompare(b.from));
+        todayTasks.sort((a, b) => (a.from || a.time || "00:00").localeCompare(b.from || b.time || "00:00"));
         this._data.days[key] = {
             date: key,
             tasks: todayTasks,

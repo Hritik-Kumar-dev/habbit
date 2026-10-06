@@ -176,10 +176,14 @@ class Heatmap extends St.Widget {
             // Hover: update + reposition the ONE persistent tooltip.
             // Never create or destroy it here — that was the flicker root cause.
             cell.connect('notify::hover', () => {
-                if (cell.hover) {
-                    this._showTooltip(cell, entry);
-                } else {
-                    this._tooltip.hide();
+                try {
+                    if (cell.hover) {
+                        this._showTooltip(cell, entry);
+                    } else {
+                        this._tooltip.hide();
+                    }
+                } catch (_) {
+                    // Ignore hover errors — never crash the shell
                 }
             });
 
@@ -196,19 +200,26 @@ class Heatmap extends St.Widget {
     }
 
     _showTooltip(cell, entry) {
-        const completed = entry.tasks.filter(t => t.completed).length;
-        const total     = entry.tasks.length;
-        const pct       = entry.completionPct;
-        const dateStr   = _formatDateDisplay(entry.date);
+        // Guard: cell or entry could be stale if update() was called mid-hover
+        if (!cell || !entry) return;
+        try {
+            const completed = (entry.tasks || []).filter(t => t.completed).length;
+            const total     = (entry.tasks || []).length;
+            const pct       = entry.completionPct || 0;
+            const dateStr   = _formatDateDisplay(entry.date);
 
-        const text = total === 0
-            ? `${dateStr} — No tasks`
-            : `${dateStr} — ${completed} / ${total} completed · ${pct}%`;
+            const text = total === 0
+                ? `${dateStr} — No tasks`
+                : `${dateStr} — ${completed} / ${total} completed · ${pct}%`;
 
-        // Update text and position in place — no destroy, no re-add.
-        this._tooltip.set_text(text);
-        const [cx, cy] = cell.get_position();
-        this._tooltip.set_position(cx, Math.max(0, cy - 24));
-        this._tooltip.show();
+            this._tooltip.set_text(text);
+            const [cx, cy] = cell.get_position();
+            // Position above the cell; if at top rows push below instead
+            const tooltipY = cy < 28 ? cy + CELL_SIZE + 4 : cy - 24;
+            this._tooltip.set_position(Math.max(0, cx), Math.max(0, tooltipY));
+            this._tooltip.show();
+        } catch (_) {
+            // Never crash the shell over a tooltip
+        }
     }
 });
