@@ -53,19 +53,43 @@ class Heatmap extends St.Widget {
         // Will be added to parent after _build() so it renders on top.
         this._tooltipAdded = false;
 
+        // Track whether a rebuild is in progress so stale hover signals are ignored.
+        this._rebuilding = false;
+
         this._build();
     }
 
     /**
      * Replace data and re-render. Only called on data changes, never on hover.
+     *
+     * Bug fix: before destroying children we set _rebuilding = true so that any
+     * notify::hover signal that fires on a cell that is mid-destroy (a real
+     * occurrence when the user is hovering while tasks-changed fires) becomes a
+     * no-op instead of calling get_position() on a destroyed St.Widget — which
+     * was the root cause of the crash / session logout.
+     *
      * @param {object[]} data
      */
     update(data) {
         this._data = data;
-        this.destroy_all_children();
+
+        // Disconnect all hover signal handlers before destroying cells.
+        // This prevents stale notify::hover callbacks from firing on destroyed
+        // actors, which crashed the GNOME Shell process and logged out the user.
+        this._rebuilding = true;
+        for (const { cell, handlerId } of this._cells) {
+            try {
+                if (handlerId && cell)
+                    cell.disconnect(handlerId);
+            } catch (_) {}
+        }
         this._cells = [];
+
+        this.destroy_all_children();
         this._tooltipAdded = false;
         this._tooltip.hide();
+
+        this._rebuilding = false;
         this._build();
     }
 
@@ -175,7 +199,14 @@ class Heatmap extends St.Widget {
 
             // Hover: update + reposition the ONE persistent tooltip.
             // Never create or destroy it here — that was the flicker root cause.
-            cell.connect('notify::hover', () => {
+            //
+            // Bug fix: store the signal handler ID so update() can disconnect it
+            // before destroy_all_children().  The _rebuilding guard is a second
+            // line of defence: if the OS delivers a queued notify::hover after
+            // disconnect() but before destroy completes, we bail out immediately
+            // instead of calling get_position() on a dead actor.
+            const handlerId = cell.connect('notify::hover', () => {
+                if (this._rebuilding) return;
                 try {
                     if (cell.hover) {
                         this._showTooltip(cell, entry);
@@ -188,7 +219,7 @@ class Heatmap extends St.Widget {
             });
 
             this.add_child(cell);
-            this._cells.push({ cell, entry });
+            this._cells.push({ cell, entry, handlerId });
         }
 
         // Add tooltip last so it renders above all cells.
@@ -200,8 +231,11 @@ class Heatmap extends St.Widget {
     }
 
     _showTooltip(cell, entry) {
-        // Guard: cell or entry could be stale if update() was called mid-hover
+        // Guard: cell or entry could be stale if update() was called mid-hover.
+        // is_finalized() returns true when the underlying GObject has been freed;
+        // calling any method on it after that point crashes the GNOME Shell process.
         if (!cell || !entry) return;
+        if (cell.is_finalized?.()) return;
         try {
             const completed = (entry.tasks || []).filter(t => t.completed).length;
             const total     = (entry.tasks || []).length;
